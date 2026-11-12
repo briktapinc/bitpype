@@ -112,7 +112,7 @@ const LEAD_B = 139002;
     n++;
     assert.ok(smSrc.includes("pricing: { label: 'Pricing'"), 'MODULE_META carries the Pricing label');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod41'"), 'MODULE_SCRIPT_VER bumped mod38 -> mod39 (finisher rotation on rebase; Batch 164 finisher: current value mod40)');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod42'"), 'MODULE_SCRIPT_VER bumped mod38 -> mod39 (finisher rotation on rebase; Batch 164 finisher: current value mod40)');
     n++;
     assert.ok(smSrc.includes("case 'pricing':"), 'module purge steps know pricing');
     n++;

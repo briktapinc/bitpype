@@ -394,7 +394,7 @@ check('embed script keeps static snapshots and resolves legacy ?bpItem= links', 
   assert.ok(js.includes("data-bitpype-static-blog"), 'static snapshot marker handled');
   assert.ok(js.includes('staticBlogPostUrl'), 'legacy link resolver present');
   assert.ok(js.includes('location.replace(staticBlogPostUrl'), 'redirects to the static post URL');
-  assert.equal(siteModules.MODULE_SCRIPT_VER, 'mod41', 'Batch 32 bumps the embed script version (finisher rotation: Batch 165 rebase re-derived the merged script ver mod40 -> mod41)');
+  assert.equal(siteModules.MODULE_SCRIPT_VER, 'mod42', 'Batch 32 bumps the embed script version (finisher rotation: Batch 165 rebase re-derived the merged script ver mod40 -> mod41)');
 });
 
 /* ------------------------------------------------------------------ */

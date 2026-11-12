@@ -6825,6 +6825,7 @@
         { key: 'cover_image', label: 'Cover photo', kind: 'image' },
         { key: 'excerpt', label: 'Excerpt (optional — auto from body if empty)', kind: 'textarea' },
         { key: 'body_html', label: 'Body (HTML)', kind: 'textarea' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
@@ -6837,6 +6838,7 @@
         { key: 'image_url', label: 'Product photo', kind: 'image' },
         { key: 'checkout_url', label: 'Checkout / buy URL' },
         { key: 'description', label: 'Description', kind: 'textarea' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
@@ -6847,6 +6849,7 @@
         { key: 'cover_image', label: 'Cover photo', kind: 'image' },
         { key: 'enrollment_url', label: 'Enrollment URL' },
         { key: 'description', label: 'Description', kind: 'textarea' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
@@ -6855,6 +6858,7 @@
         { key: 'title', label: 'Album title', required: true },
         { key: 'slug', label: 'Slug' },
         { key: 'description', label: 'Description', kind: 'textarea' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
         { key: 'image_url', label: 'First photo (optional)', kind: 'image' },
         {
@@ -6870,6 +6874,7 @@
         { key: 'question', label: 'Question', required: true },
         { key: 'answer_html', label: 'Answer (HTML)', kind: 'textarea' },
         { key: 'category', label: 'Category' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
@@ -6880,6 +6885,7 @@
         { key: 'author_title', label: 'Author title / role' },
         { key: 'author_company', label: 'Company' },
         { key: 'rating', label: 'Rating (1–5)' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'image_url', label: 'Author photo', kind: 'image' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
@@ -6894,6 +6900,7 @@
         { key: 'email', label: 'Email' },
         { key: 'phone', label: 'Phone' },
         { key: 'social_url', label: 'Profile link' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
@@ -6921,6 +6928,7 @@
           hint: "Pick one of your gallery albums and its photos show on this event's page — modules share content through the shared layer.",
         },
         { key: 'ticket_url', label: 'Tickets / RSVP URL' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'description', label: 'Description', kind: 'textarea' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
@@ -6935,6 +6943,7 @@
         { key: 'currency', label: 'Currency', placeholder: 'USD' },
         { key: 'image_url', label: 'Service photo', kind: 'image' },
         { key: 'description', label: 'Description', kind: 'textarea' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
     }
@@ -7001,6 +7010,7 @@
         { key: 'terms', label: 'Terms (optional)', kind: 'textarea' },
         { key: 'expires_at', label: 'Expires (optional)', placeholder: 'YYYY-MM-DD' },
         { key: 'image_url', label: 'Image (optional)', kind: 'image' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'sort_order', label: 'Sort order' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
@@ -7015,6 +7025,7 @@
         { key: 'price_text', label: 'Price', placeholder: '$12, Market price, from $40…' },
         { key: 'description', label: 'Description', kind: 'textarea' },
         { key: 'tags', label: 'Tags (optional)', placeholder: 'popular, spicy, gluten-free' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'sort_order', label: 'Sort order' },
         { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
       ];
@@ -7027,6 +7038,7 @@
         { key: 'description', label: 'Description', kind: 'textarea' },
         { key: 'apply_mode', label: 'How to apply', kind: 'select', options: ['email', 'url', 'form'] },
         { key: 'apply_target', label: 'Apply target', placeholder: 'Email, application URL, or form page' },
+        { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
         { key: 'sort_order', label: 'Sort order' },
         { key: 'status', label: 'Status', kind: 'select', options: ['active', 'inactive'] },
       ];
@@ -7135,6 +7147,7 @@
       { key: 'website_url', label: 'Website / link' },
       { key: 'image_url', label: 'Photo', kind: 'image' },
       { key: 'description', label: 'Description', kind: 'textarea' },
+      { key: 'video_url', label: 'Video URL (YouTube or Vimeo, optional)', placeholder: 'https://www.youtube.com/watch?v=…' },
       { key: 'status', label: 'Status', kind: 'select', options: ['draft', 'published'] },
     ];
   }

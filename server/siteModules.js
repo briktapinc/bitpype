@@ -76,7 +76,9 @@ const SCRIPT_ATTR = 'data-bitpype-module-script';
 // the gate/room client loads from the same script family). The bump
 // is +1 relative to the landed 164 tip (mod40), per the finisher
 // convention — both parked builds had pinned mod40 on their own trees.
-const MODULE_SCRIPT_VER = 'mod41';
+// Batch 181: mod42 — the shared detailVideoHtml facade joins the
+// detail renderer (every detail-capable item type's optional video).
+const MODULE_SCRIPT_VER = 'mod42';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },
@@ -283,6 +285,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS blog_posts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       title TEXT NOT NULL,
       slug TEXT NOT NULL,
       body_html TEXT NOT NULL DEFAULT '',
@@ -297,6 +300,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS ecommerce_products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       name TEXT NOT NULL,
       slug TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
@@ -394,6 +398,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS courses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       title TEXT NOT NULL,
       slug TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
@@ -420,6 +425,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS gallery_albums (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       title TEXT NOT NULL,
       slug TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
@@ -443,6 +449,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS directory_listings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       name TEXT NOT NULL,
       category TEXT NOT NULL DEFAULT '',
       description TEXT NOT NULL DEFAULT '',
@@ -459,6 +466,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS faq_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       question TEXT NOT NULL,
       answer_html TEXT NOT NULL DEFAULT '',
       category TEXT NOT NULL DEFAULT '',
@@ -471,6 +479,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS testimonials (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       quote TEXT NOT NULL,
       author_name TEXT NOT NULL DEFAULT '',
       author_title TEXT NOT NULL DEFAULT '',
@@ -486,6 +495,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS team_members (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       name TEXT NOT NULL,
       slug TEXT NOT NULL,
       role_title TEXT NOT NULL DEFAULT '',
@@ -504,6 +514,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       title TEXT NOT NULL,
       slug TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
@@ -522,6 +533,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS offers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       title TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       code TEXT NOT NULL DEFAULT '',
@@ -547,6 +559,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS menu_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       category_id INTEGER,
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
@@ -561,6 +574,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS careers_postings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       title TEXT NOT NULL,
       employment_type TEXT NOT NULL DEFAULT 'Full-time',
       location TEXT NOT NULL DEFAULT '',
@@ -878,6 +892,7 @@ function ensureTables(db) {
     CREATE TABLE IF NOT EXISTS booking_services (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead_id INTEGER NOT NULL,
+      video_url TEXT NOT NULL DEFAULT '',
       name TEXT NOT NULL,
       slug TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
@@ -1279,6 +1294,22 @@ function ensureTables(db) {
       .map((c) => String(c.name || ''));
     if (!blogCols.includes('excerpt')) {
       db.exec("ALTER TABLE blog_posts ADD COLUMN excerpt TEXT NOT NULL DEFAULT ''");
+    }
+  } catch {
+    /* race / exists */
+  }
+  try {
+    // Batch 181: the shared optional video_url column on every
+    // detail-capable item table (existing DBs predate it — the
+    // CREATE TABLEs above only cover fresh ones).
+    for (const t of DETAIL_VIDEO_TABLES) {
+      const cols = db
+        .prepare(`PRAGMA table_info(${t})`)
+        .all()
+        .map((c) => String(c.name || ''));
+      if (cols.length && !cols.includes('video_url')) {
+        db.exec(`ALTER TABLE ${t} ADD COLUMN video_url TEXT NOT NULL DEFAULT ''`);
+      }
     }
   } catch {
     /* race / exists */
@@ -4503,7 +4534,7 @@ function getBlogPost(db, leadId, idOrSlug) {
   } else {
     row = db.prepare('SELECT * FROM blog_posts WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
   }
-  return decorateItemCategories(db, leadId, 'blog', row || null);
+  return withItemVideo(decorateItemCategories(db, leadId, 'blog', row || null));
 }
 
 function createBlogPost(db, leadId, data = {}) {
@@ -4517,13 +4548,14 @@ function createBlogPost(db, leadId, data = {}) {
   const publishedAt = status === 'published' ? data.published_at || new Date().toISOString() : null;
   const bodyHtml = String(data.body_html || data.body || '');
   const excerpt = resolveBlogExcerpt(data, bodyHtml);
+  const videoUrl = normalizeItemVideoUrl(data);
   try {
     const info = db
       .prepare(
         `
       INSERT INTO blog_posts
-        (lead_id, title, slug, body_html, excerpt, cover_image, status, published_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (lead_id, title, slug, body_html, excerpt, cover_image, status, published_at, video_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -4534,7 +4566,8 @@ function createBlogPost(db, leadId, data = {}) {
         excerpt,
         String(data.cover_image || data.coverImage || ''),
         status,
-        publishedAt
+        publishedAt,
+        videoUrl
       );
     if (wantsCats) applyItemCategories(db, leadId, 'blog', Number(info.lastInsertRowid), data);
     return getBlogPost(db, leadId, info.lastInsertRowid);
@@ -4577,13 +4610,14 @@ function updateBlogPost(db, leadId, id, data = {}) {
     if (status === 'draft') publishedAt = null;
   }
   if (data.published_at != null) publishedAt = data.published_at || null;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   try {
     db.prepare(
       `
       UPDATE blog_posts SET title=?, slug=?, body_html=?, excerpt=?, cover_image=?, status=?,
-        published_at=?, updated_at=datetime('now') WHERE id=? AND lead_id=?
+        published_at=?, video_url=?, updated_at=datetime('now') WHERE id=? AND lead_id=?
     `
-    ).run(title, slug, body, nextExcerpt, cover, status, publishedAt, row.id, Number(leadId));
+    ).run(title, slug, body, nextExcerpt, cover, status, publishedAt, videoUrl, row.id, Number(leadId));
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
       throw fail('CONFLICT', `Blog slug already exists: ${slug}`, 409);
@@ -4617,9 +4651,13 @@ function getProduct(db, leadId, idOrSlug) {
   ensureTables(db);
   const lid = Number(leadId);
   if (/^\d+$/.test(String(idOrSlug))) {
-    return db.prepare('SELECT * FROM ecommerce_products WHERE lead_id = ? AND id = ?').get(lid, Number(idOrSlug));
+    return withItemVideo(
+      db.prepare('SELECT * FROM ecommerce_products WHERE lead_id = ? AND id = ?').get(lid, Number(idOrSlug))
+    );
   }
-  return db.prepare('SELECT * FROM ecommerce_products WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
+  return withItemVideo(
+    db.prepare('SELECT * FROM ecommerce_products WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug))
+  );
 }
 
 function createProduct(db, leadId, data = {}) {
@@ -4636,6 +4674,7 @@ function createProduct(db, leadId, data = {}) {
     throw fail('VALIDATION', 'variants need option groups — send options together with the variants', 400);
   }
   const slug = slugify(data.slug || name, 'product');
+  const videoUrl = normalizeItemVideoUrl(data);
   const priceCents =
     data.price_cents != null ? Math.round(Number(data.price_cents) || 0) : Math.round((Number(data.price) || 0) * 100);
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
@@ -4644,8 +4683,8 @@ function createProduct(db, leadId, data = {}) {
       .prepare(
         `
       INSERT INTO ecommerce_products
-        (lead_id, name, slug, description, price_cents, currency, image_url, checkout_url, status, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (lead_id, name, slug, description, price_cents, currency, image_url, checkout_url, status, sort_order, video_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -4660,7 +4699,8 @@ function createProduct(db, leadId, data = {}) {
         String(data.image_url || data.image || ''),
         String(data.checkout_url || data.checkoutUrl || data.buy_url || ''),
         status,
-        Number(data.sort_order) || 0
+        Number(data.sort_order) || 0,
+        videoUrl
       );
     const created = getProduct(db, leadId, info.lastInsertRowid);
     // Batch 127: variant structure rides the same write (pre-flighted
@@ -4718,14 +4758,15 @@ function updateProduct(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   try {
     db.prepare(
       `
       UPDATE ecommerce_products SET name=?, slug=?, description=?, price_cents=?, currency=?,
-        image_url=?, checkout_url=?, status=?, sort_order=?, updated_at=datetime('now')
+        image_url=?, checkout_url=?, status=?, sort_order=?, video_url=?, updated_at=datetime('now')
       WHERE id=? AND lead_id=?
     `
-    ).run(name, slug, description, priceCents, currency, image, checkout, status, sortOrder, row.id, Number(leadId));
+    ).run(name, slug, description, priceCents, currency, image, checkout, status, sortOrder, videoUrl, row.id, Number(leadId));
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
       throw fail('CONFLICT', `Product slug already exists: ${slug}`, 409);
@@ -6313,7 +6354,7 @@ function getCourse(db, leadId, idOrSlug, { withLessons = true } = {}) {
   }
   if (!row) return null;
   if (withLessons) row = { ...row, lessons: lessonsForCourse(db, row.id) };
-  return row;
+  return withItemVideo(row);
 }
 
 function createCourse(db, leadId, data = {}) {
@@ -6321,6 +6362,7 @@ function createCourse(db, leadId, data = {}) {
   const title = String(data.title || '').trim();
   if (!title) throw fail('VALIDATION', 'title is required');
   const slug = slugify(data.slug || title, 'course');
+  const videoUrl = normalizeItemVideoUrl(data);
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   let course;
   try {
@@ -6328,8 +6370,8 @@ function createCourse(db, leadId, data = {}) {
       .prepare(
         `
       INSERT INTO courses
-        (lead_id, title, slug, description, enrollment_url, cover_image, status, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (lead_id, title, slug, description, enrollment_url, cover_image, status, sort_order, video_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -6340,7 +6382,8 @@ function createCourse(db, leadId, data = {}) {
         String(data.enrollment_url || data.enrollmentUrl || ''),
         String(data.cover_image || data.coverImage || ''),
         status,
-        Number(data.sort_order) || 0
+        Number(data.sort_order) || 0,
+        videoUrl
       );
     course = getCourse(db, leadId, info.lastInsertRowid, { withLessons: false });
   } catch (e) {
@@ -6377,13 +6420,14 @@ function updateCourse(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   try {
     db.prepare(
       `
       UPDATE courses SET title=?, slug=?, description=?, enrollment_url=?, cover_image=?,
-        status=?, sort_order=?, updated_at=datetime('now') WHERE id=? AND lead_id=?
+        status=?, sort_order=?, video_url=?, updated_at=datetime('now') WHERE id=? AND lead_id=?
     `
-    ).run(title, slug, description, enrollment, cover, status, sortOrder, row.id, Number(leadId));
+    ).run(title, slug, description, enrollment, cover, status, sortOrder, videoUrl, row.id, Number(leadId));
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
       throw fail('CONFLICT', `Course slug already exists: ${slug}`, 409);
@@ -6470,7 +6514,7 @@ function getAlbum(db, leadId, idOrSlug, { withImages = true } = {}) {
   }
   if (!row) return null;
   if (withImages) row = { ...row, images: imagesForAlbum(db, row.id) };
-  return decorateItemCategories(db, leadId, 'gallery', row);
+  return withItemVideo(decorateItemCategories(db, leadId, 'gallery', row));
 }
 
 function createAlbum(db, leadId, data = {}) {
@@ -6480,14 +6524,15 @@ function createAlbum(db, leadId, data = {}) {
   // Batch 124: validate category assignments before the insert.
   const wantsCats = assertItemCategories(db, leadId, 'gallery', data);
   const slug = slugify(data.slug || title, 'album');
+  const videoUrl = normalizeItemVideoUrl(data);
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   let album;
   try {
     const info = db
       .prepare(
         `
-      INSERT INTO gallery_albums (lead_id, title, slug, description, status, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO gallery_albums (lead_id, title, slug, description, status, sort_order, video_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -6496,7 +6541,8 @@ function createAlbum(db, leadId, data = {}) {
         slug,
         String(data.description || ''),
         status,
-        Number(data.sort_order) || 0
+        Number(data.sort_order) || 0,
+        videoUrl
       );
     album = getAlbum(db, leadId, info.lastInsertRowid, { withImages: false });
   } catch (e) {
@@ -6533,13 +6579,14 @@ function updateAlbum(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   try {
     db.prepare(
       `
       UPDATE gallery_albums SET title=?, slug=?, description=?, status=?, sort_order=?,
-        updated_at=datetime('now') WHERE id=? AND lead_id=?
+        video_url=?, updated_at=datetime('now') WHERE id=? AND lead_id=?
     `
-    ).run(title, slug, description, status, sortOrder, row.id, Number(leadId));
+    ).run(title, slug, description, status, sortOrder, videoUrl, row.id, Number(leadId));
   } catch (e) {
     if (String(e.message || '').includes('UNIQUE')) {
       throw fail('CONFLICT', `Album slug already exists: ${slug}`, 409);
@@ -6614,7 +6661,7 @@ function getListing(db, leadId, id) {
   const row = db
     .prepare('SELECT * FROM directory_listings WHERE lead_id = ? AND id = ?')
     .get(Number(leadId), Number(id));
-  return decorateItemCategories(db, leadId, 'directory', row || null);
+  return withItemVideo(decorateItemCategories(db, leadId, 'directory', row || null));
 }
 
 function createListing(db, leadId, data = {}) {
@@ -6623,13 +6670,14 @@ function createListing(db, leadId, data = {}) {
   if (!name) throw fail('VALIDATION', 'name is required');
   // Batch 124: validate category assignments before the insert.
   const wantsCats = assertItemCategories(db, leadId, 'directory', data);
+  const videoUrl = normalizeItemVideoUrl(data);
   const status = String(data.status || 'draft').toLowerCase() === 'published' ? 'published' : 'draft';
   const info = db
     .prepare(
       `
     INSERT INTO directory_listings
-      (lead_id, name, category, description, contact_email, contact_phone, website_url, image_url, status, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (lead_id, name, category, description, contact_email, contact_phone, website_url, image_url, status, sort_order, video_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -6642,7 +6690,8 @@ function createListing(db, leadId, data = {}) {
       String(data.website_url || data.link || data.url || ''),
       String(data.image_url || data.image || ''),
       status,
-      Number(data.sort_order) || 0
+      Number(data.sort_order) || 0,
+      videoUrl
     );
   if (wantsCats) applyItemCategories(db, leadId, 'directory', Number(info.lastInsertRowid), data);
   return getListing(db, leadId, info.lastInsertRowid);
@@ -6681,13 +6730,14 @@ function updateListing(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   db.prepare(
     `
     UPDATE directory_listings SET name=?, category=?, description=?, contact_email=?,
       contact_phone=?, website_url=?, image_url=?, status=?, sort_order=?,
-      updated_at=datetime('now') WHERE id=? AND lead_id=?
+      video_url=?, updated_at=datetime('now') WHERE id=? AND lead_id=?
   `
-  ).run(name, category, description, email, phone, website, image, status, sortOrder, row.id, Number(leadId));
+  ).run(name, category, description, email, phone, website, image, status, sortOrder, videoUrl, row.id, Number(leadId));
   if (wantsCats) applyItemCategories(db, leadId, 'directory', row.id, data);
   return getListing(db, leadId, row.id);
 }
@@ -6718,7 +6768,9 @@ function listFaqItems(db, leadId, { includeDrafts = true, category } = {}) {
 
 function getFaqItem(db, leadId, id) {
   ensureTables(db);
-  return db.prepare('SELECT * FROM faq_items WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
+  return withItemVideo(
+    db.prepare('SELECT * FROM faq_items WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id))
+  );
 }
 
 function createFaqItem(db, leadId, data = {}) {
@@ -6729,8 +6781,8 @@ function createFaqItem(db, leadId, data = {}) {
   const info = db
     .prepare(
       `
-    INSERT INTO faq_items (lead_id, question, answer_html, category, status, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO faq_items (lead_id, question, answer_html, category, status, sort_order, video_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -6739,7 +6791,8 @@ function createFaqItem(db, leadId, data = {}) {
       String(data.answer_html || data.answer || data.body_html || ''),
       String(data.category || '').slice(0, 120),
       status,
-      Number(data.sort_order) || 0
+      Number(data.sort_order) || 0,
+      normalizeItemVideoUrl(data)
     );
   return getFaqItem(db, leadId, info.lastInsertRowid);
 }
@@ -6762,12 +6815,13 @@ function updateFaqItem(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   db.prepare(
     `
     UPDATE faq_items SET question=?, answer_html=?, category=?, status=?, sort_order=?,
-      updated_at=datetime('now') WHERE id=? AND lead_id=?
+      video_url=?, updated_at=datetime('now') WHERE id=? AND lead_id=?
   `
-  ).run(question, answer, category, status, sortOrder, row.id, Number(leadId));
+  ).run(question, answer, category, status, sortOrder, videoUrl, row.id, Number(leadId));
   return getFaqItem(db, leadId, row.id);
 }
 
@@ -6791,7 +6845,9 @@ function listTestimonials(db, leadId, { includeDrafts = true } = {}) {
 
 function getTestimonial(db, leadId, id) {
   ensureTables(db);
-  return db.prepare('SELECT * FROM testimonials WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
+  return withItemVideo(
+    db.prepare('SELECT * FROM testimonials WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id))
+  );
 }
 
 function createTestimonial(db, leadId, data = {}) {
@@ -6807,8 +6863,8 @@ function createTestimonial(db, leadId, data = {}) {
     .prepare(
       `
     INSERT INTO testimonials
-      (lead_id, quote, author_name, author_title, author_company, rating, image_url, status, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (lead_id, quote, author_name, author_title, author_company, rating, image_url, status, sort_order, video_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -6820,7 +6876,8 @@ function createTestimonial(db, leadId, data = {}) {
       rating,
       String(data.image_url || data.image || ''),
       status,
-      Number(data.sort_order) || 0
+      Number(data.sort_order) || 0,
+      normalizeItemVideoUrl(data)
     );
   return getTestimonial(db, leadId, info.lastInsertRowid);
 }
@@ -6865,13 +6922,14 @@ function updateTestimonial(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   db.prepare(
     `
     UPDATE testimonials SET quote=?, author_name=?, author_title=?, author_company=?,
-      rating=?, image_url=?, status=?, sort_order=?, updated_at=datetime('now')
+      rating=?, image_url=?, status=?, sort_order=?, video_url=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
   `
-  ).run(quote, authorName, authorTitle, authorCompany, rating, image, status, sortOrder, row.id, Number(leadId));
+  ).run(quote, authorName, authorTitle, authorCompany, rating, image, status, sortOrder, videoUrl, row.id, Number(leadId));
   return getTestimonial(db, leadId, row.id);
 }
 
@@ -6897,9 +6955,13 @@ function getTeamMember(db, leadId, idOrSlug) {
   ensureTables(db);
   const lid = Number(leadId);
   if (/^\d+$/.test(String(idOrSlug))) {
-    return db.prepare('SELECT * FROM team_members WHERE lead_id = ? AND id = ?').get(lid, Number(idOrSlug));
+    return withItemVideo(
+      db.prepare('SELECT * FROM team_members WHERE lead_id = ? AND id = ?').get(lid, Number(idOrSlug))
+    );
   }
-  return db.prepare('SELECT * FROM team_members WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
+  return withItemVideo(
+    db.prepare('SELECT * FROM team_members WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug))
+  );
 }
 
 function createTeamMember(db, leadId, data = {}) {
@@ -6914,8 +6976,8 @@ function createTeamMember(db, leadId, data = {}) {
     .prepare(
       `
     INSERT INTO team_members
-      (lead_id, name, slug, role_title, bio, image_url, email, phone, social_url, status, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (lead_id, name, slug, role_title, bio, image_url, email, phone, social_url, status, sort_order, video_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -6929,7 +6991,8 @@ function createTeamMember(db, leadId, data = {}) {
       String(data.phone || ''),
       String(data.social_url || data.link || data.url || ''),
       status,
-      Number(data.sort_order) || 0
+      Number(data.sort_order) || 0,
+      normalizeItemVideoUrl(data)
     );
   return getTeamMember(db, leadId, info.lastInsertRowid);
 }
@@ -6966,13 +7029,14 @@ function updateTeamMember(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   db.prepare(
     `
     UPDATE team_members SET name=?, slug=?, role_title=?, bio=?, image_url=?, email=?,
-      phone=?, social_url=?, status=?, sort_order=?, updated_at=datetime('now')
+      phone=?, social_url=?, status=?, sort_order=?, video_url=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
   `
-  ).run(name, slug, role, bio, image, email, phone, social, status, sortOrder, row.id, Number(leadId));
+  ).run(name, slug, role, bio, image, email, phone, social, status, sortOrder, videoUrl, row.id, Number(leadId));
   return getTeamMember(db, leadId, row.id);
 }
 
@@ -7021,7 +7085,7 @@ function getEvent(db, leadId, idOrSlug) {
   } else {
     row = db.prepare('SELECT * FROM events WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
   }
-  return decorateItemCategories(db, leadId, 'events', decorateEventGallery(db, leadId, row || null));
+  return withItemVideo(decorateItemCategories(db, leadId, 'events', decorateEventGallery(db, leadId, row || null)));
 }
 
 function createEvent(db, leadId, data = {}) {
@@ -7044,8 +7108,8 @@ function createEvent(db, leadId, data = {}) {
     .prepare(
       `
     INSERT INTO events
-      (lead_id, title, slug, description, starts_at, ends_at, location, image_url, ticket_url, status, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (lead_id, title, slug, description, starts_at, ends_at, location, image_url, ticket_url, status, sort_order, video_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -7059,7 +7123,8 @@ function createEvent(db, leadId, data = {}) {
       String(data.image_url || data.image || ''),
       String(data.ticket_url || data.link || data.url || ''),
       status,
-      Number(data.sort_order) || 0
+      Number(data.sort_order) || 0,
+      normalizeItemVideoUrl(data)
     );
   if (wantsGallery) {
     require('./moduleShare').applyEventGallery(db, leadId, Number(info.lastInsertRowid), data.gallery_album_id);
@@ -7118,13 +7183,14 @@ function updateEvent(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   db.prepare(
     `
     UPDATE events SET title=?, slug=?, description=?, starts_at=?, ends_at=?, location=?,
-      image_url=?, ticket_url=?, status=?, sort_order=?, updated_at=datetime('now')
+      image_url=?, ticket_url=?, status=?, sort_order=?, video_url=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
   `
-  ).run(title, slug, description, starts, ends, location, image, ticket, status, sortOrder, row.id, Number(leadId));
+  ).run(title, slug, description, starts, ends, location, image, ticket, status, sortOrder, videoUrl, row.id, Number(leadId));
   if (wantsGallery) {
     require('./moduleShare').applyEventGallery(db, leadId, row.id, data.gallery_album_id);
   }
@@ -7184,7 +7250,7 @@ function listOffers(db, leadId, { includeDrafts = true } = {}) {
 function getOffer(db, leadId, id) {
   ensureTables(db);
   const row = db.prepare('SELECT * FROM offers WHERE lead_id = ? AND id = ?').get(Number(leadId), Number(id));
-  return decorateItemCategories(db, leadId, 'offers', withOfferFlags(row));
+  return withItemVideo(decorateItemCategories(db, leadId, 'offers', withOfferFlags(row)));
 }
 
 function createOffer(db, leadId, data = {}) {
@@ -7197,8 +7263,8 @@ function createOffer(db, leadId, data = {}) {
   const info = db
     .prepare(
       `
-    INSERT INTO offers (lead_id, title, description, code, terms, expires_at, image_url, status, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO offers (lead_id, title, description, code, terms, expires_at, image_url, status, sort_order, video_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -7210,7 +7276,8 @@ function createOffer(db, leadId, data = {}) {
       normalizeOfferExpires(data.expires_at || data.expires || ''),
       String(data.image_url || data.image || ''),
       status,
-      Number(data.sort_order) || 0
+      Number(data.sort_order) || 0,
+      normalizeItemVideoUrl(data)
     );
   if (wantsCats) applyItemCategories(db, leadId, 'offers', Number(info.lastInsertRowid), data);
   return getOffer(db, leadId, info.lastInsertRowid);
@@ -7236,13 +7303,14 @@ function updateOffer(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   db.prepare(
     `
     UPDATE offers SET title=?, description=?, code=?, terms=?, expires_at=?,
-      image_url=?, status=?, sort_order=?, updated_at=datetime('now')
+      image_url=?, status=?, sort_order=?, video_url=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
   `
-  ).run(title, description, code, terms, expires, image, status, sortOrder, row.id, Number(leadId));
+  ).run(title, description, code, terms, expires, image, status, sortOrder, videoUrl, row.id, Number(leadId));
   if (wantsCats) applyItemCategories(db, leadId, 'offers', row.id, data);
   return getOffer(db, leadId, row.id);
 }
@@ -7849,14 +7917,16 @@ function listMenuItems(db, leadId, { includeDrafts = true } = {}) {
 
 function getMenuItem(db, leadId, id) {
   ensureTables(db);
-  return db
-    .prepare(
-      `SELECT mi.*, mc.name AS category_name
+  return withItemVideo(
+    db
+      .prepare(
+        `SELECT mi.*, mc.name AS category_name
        FROM menu_items mi
        LEFT JOIN menu_categories mc ON mc.id = mi.category_id AND mc.lead_id = mi.lead_id
        WHERE mi.lead_id = ? AND mi.id = ?`
-    )
-    .get(Number(leadId), Number(id));
+      )
+      .get(Number(leadId), Number(id))
+  );
 }
 
 function createMenuItem(db, leadId, data = {}) {
@@ -7868,8 +7938,8 @@ function createMenuItem(db, leadId, data = {}) {
   const info = db
     .prepare(
       `
-    INSERT INTO menu_items (lead_id, category_id, name, description, price_text, tags, status, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO menu_items (lead_id, category_id, name, description, price_text, tags, status, sort_order, video_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -7880,7 +7950,8 @@ function createMenuItem(db, leadId, data = {}) {
       String(data.price_text || data.price || '').slice(0, 80),
       String(data.tags || '').slice(0, 200),
       status,
-      Number(data.sort_order) || 0
+      Number(data.sort_order) || 0,
+      normalizeItemVideoUrl(data)
     );
   return getMenuItem(db, leadId, info.lastInsertRowid);
 }
@@ -7902,13 +7973,14 @@ function updateMenuItem(db, leadId, id, data = {}) {
   const status =
     data.status != null ? (String(data.status).toLowerCase() === 'published' ? 'published' : 'draft') : row.status;
   const sortOrder = data.sort_order != null ? Number(data.sort_order) || 0 : row.sort_order;
+  const videoUrl = normalizeItemVideoUrl(data, row);
   db.prepare(
     `
     UPDATE menu_items SET category_id=?, name=?, description=?, price_text=?, tags=?,
-      status=?, sort_order=?, updated_at=datetime('now')
+      status=?, sort_order=?, video_url=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
   `
-  ).run(categoryId, name, description, priceText, tags, status, sortOrder, row.id, Number(leadId));
+  ).run(categoryId, name, description, priceText, tags, status, sortOrder, videoUrl, row.id, Number(leadId));
   return getMenuItem(db, leadId, row.id);
 }
 
@@ -7943,7 +8015,7 @@ function getCareersPosting(db, leadId, id) {
   const row = db
     .prepare('SELECT * FROM careers_postings WHERE lead_id = ? AND id = ?')
     .get(Number(leadId), Number(id));
-  return withCareersStatus(row);
+  return withItemVideo(withCareersStatus(row));
 }
 
 function normalizeCareersFields(data, row = {}) {
@@ -7988,6 +8060,9 @@ function normalizeCareersFields(data, row = {}) {
   } else out.active = row.active != null ? row.active : 1;
   const sort = pick('sort_order', ['sort']);
   out.sort_order = sort !== undefined ? Number(sort) || 0 : row.sort_order || 0;
+  // Batch 181: the shared optional video, validated like every other
+  // detail-capable type (invalid throws VALIDATION before any write).
+  out.video_url = normalizeItemVideoUrl(data, row);
   return out;
 }
 
@@ -7999,8 +8074,8 @@ function createCareersPosting(db, leadId, data = {}) {
     .prepare(
       `
     INSERT INTO careers_postings
-      (lead_id, title, employment_type, location, description, apply_mode, apply_target, active, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (lead_id, title, employment_type, location, description, apply_mode, apply_target, active, sort_order, video_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -8012,7 +8087,8 @@ function createCareersPosting(db, leadId, data = {}) {
       f.apply_mode,
       f.apply_target,
       f.active,
-      f.sort_order
+      f.sort_order,
+      f.video_url
     );
   return getCareersPosting(db, leadId, info.lastInsertRowid);
 }
@@ -8026,10 +8102,10 @@ function updateCareersPosting(db, leadId, id, data = {}) {
   db.prepare(
     `
     UPDATE careers_postings SET title=?, employment_type=?, location=?, description=?,
-      apply_mode=?, apply_target=?, active=?, sort_order=?, updated_at=datetime('now')
+      apply_mode=?, apply_target=?, active=?, sort_order=?, video_url=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
   `
-  ).run(f.title, f.employment_type, f.location, f.description, f.apply_mode, f.apply_target, f.active, f.sort_order, row.id, Number(leadId));
+  ).run(f.title, f.employment_type, f.location, f.description, f.apply_mode, f.apply_target, f.active, f.sort_order, f.video_url, row.id, Number(leadId));
   return getCareersPosting(db, leadId, row.id);
 }
 
@@ -8042,6 +8118,84 @@ function deleteCareersPosting(db, leadId, id) {
 }
 
 /* ── Video ── */
+
+/* ── Batch 181 — shared optional video on detail-capable items ──
+ * ONE mechanism for every in-scope type: an optional video_url
+ * (YouTube/Vimeo) stored on the item row, validated through
+ * parseVideoUrl at write time (invalid/unsupported throws
+ * VALIDATION — never a silent store), and derived embed fields
+ * attached at read time by withItemVideo. Types out of scope: video
+ * (video-native) and categories (taxonomy, no items of its own). */
+const DETAIL_VIDEO_TYPES = [
+  'blog',
+  'ecommerce',
+  'courses',
+  'gallery',
+  'directory',
+  'faq',
+  'testimonials',
+  'team',
+  'events',
+  'bookings',
+  'offers',
+  'menu',
+  'careers',
+];
+const DETAIL_VIDEO_TABLES = [
+  'blog_posts',
+  'ecommerce_products',
+  'courses',
+  'gallery_albums',
+  'directory_listings',
+  'faq_items',
+  'testimonials',
+  'team_members',
+  'events',
+  'booking_services',
+  'offers',
+  'menu_items',
+  'careers_postings',
+];
+
+/** The video_url a create/update should persist: absent key keeps
+ *  the stored value (update) or '' (create); an explicit '' clears;
+ *  anything else must parse as a YouTube/Vimeo URL or the write
+ *  throws VALIDATION before anything is stored. Returns the trimmed
+ *  ORIGINAL url (the embed shape is derived at read time). */
+function normalizeItemVideoUrl(data, row) {
+  const raw = data ? data.video_url : null;
+  if (raw == null) return (row && row.video_url) || '';
+  const value = String(raw).trim();
+  if (!value) return '';
+  parseVideoUrl(value);
+  return value;
+}
+
+/** Attach the derived video shape to an item row: video_provider,
+ *  video_embed_url, video_thumbnail_url and a nested video object.
+ *  A row with no video_url is returned UNCHANGED (same object), so
+ *  video-less items keep their exact pre-181 shape. */
+function withItemVideo(row) {
+  if (!row || !row.video_url) return row;
+  try {
+    const p = parseVideoUrl(row.video_url);
+    return {
+      ...row,
+      video_provider: p.provider,
+      video_embed_url: p.embed_url,
+      video_thumbnail_url: p.thumbnail_url,
+      video: {
+        url: row.video_url,
+        provider: p.provider,
+        video_id: p.video_id,
+        embed_url: p.embed_url,
+        thumbnail_url: p.thumbnail_url,
+      },
+    };
+  } catch {
+    return row;
+  }
+}
 
 function parseVideoUrl(raw) {
   const s = String(raw || '').trim();
@@ -14427,7 +14581,7 @@ function getBookingService(db, leadId, idOrSlug) {
   } else {
     row = db.prepare('SELECT * FROM booking_services WHERE lead_id = ? AND slug = ?').get(lid, slugify(idOrSlug));
   }
-  return publicBookingService(row);
+  return withItemVideo(publicBookingService(row));
 }
 
 function createBookingService(db, leadId, data = {}) {
@@ -14453,8 +14607,8 @@ function createBookingService(db, leadId, data = {}) {
     .prepare(
       `
     INSERT INTO booking_services
-      (lead_id, name, slug, description, duration_minutes, buffer_minutes, price_cents, currency, image_url, status, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (lead_id, name, slug, description, duration_minutes, buffer_minutes, price_cents, currency, image_url, status, sort_order, video_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
     )
     .run(
@@ -14470,7 +14624,8 @@ function createBookingService(db, leadId, data = {}) {
         .toUpperCase(),
       String(data.image_url || data.image || ''),
       status,
-      Number(data.sort_order) || 0
+      Number(data.sort_order) || 0,
+      normalizeItemVideoUrl(data)
     );
   return getBookingService(db, leadId, info.lastInsertRowid);
 }
@@ -14520,7 +14675,7 @@ function updateBookingService(db, leadId, id, data = {}) {
   db.prepare(
     `
     UPDATE booking_services SET name=?, slug=?, description=?, duration_minutes=?, buffer_minutes=?,
-      price_cents=?, currency=?, image_url=?, status=?, sort_order=?, updated_at=datetime('now')
+      price_cents=?, currency=?, image_url=?, status=?, sort_order=?, video_url=?, updated_at=datetime('now')
     WHERE id=? AND lead_id=?
   `
   ).run(
@@ -14534,6 +14689,7 @@ function updateBookingService(db, leadId, id, data = {}) {
     image,
     status,
     sortOrder,
+    normalizeItemVideoUrl(data, raw),
     raw.id,
     Number(leadId)
   );
@@ -15969,6 +16125,9 @@ module.exports = {
   updateVideoItem,
   deleteVideoItem,
   parseVideoUrl,
+  normalizeItemVideoUrl,
+  withItemVideo,
+  DETAIL_VIDEO_TYPES,
   ESTIMATE_DISPLAY_MODES,
   ESTIMATE_INPUT_TYPES,
   ESTIMATE_REQUEST_STATUSES,

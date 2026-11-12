@@ -257,6 +257,7 @@ function clientToolDefs() {
           cover_image: STR,
           status: STR,
           category_ids: CATIDS,
+          video_url: STR,
         },
         ['title']
       ),
@@ -275,6 +276,7 @@ function clientToolDefs() {
           cover_image: STR,
           status: STR,
           category_ids: CATIDS,
+          video_url: STR,
         },
         ['id']
       ),
@@ -307,6 +309,7 @@ function clientToolDefs() {
           status: STR,
           options: { type: 'array', items: { type: 'object' } },
           variants: { type: 'array', items: { type: 'object' } },
+          video_url: STR,
         },
         ['name']
       ),
@@ -330,6 +333,7 @@ function clientToolDefs() {
           status: STR,
           options: { type: 'array', items: { type: 'object' } },
           variants: { type: 'array', items: { type: 'object' } },
+          video_url: STR,
         },
         ['id']
       ),
@@ -363,6 +367,7 @@ function clientToolDefs() {
           cover_image: STR,
           status: STR,
           lessons: { type: 'array', items: { type: 'object' } },
+          video_url: STR,
         },
         ['title']
       ),
@@ -380,6 +385,7 @@ function clientToolDefs() {
           enrollment_url: STR,
           cover_image: STR,
           status: STR,
+          video_url: STR,
         },
         ['id']
       ),
@@ -422,6 +428,7 @@ function clientToolDefs() {
           status: STR,
           category_ids: CATIDS,
           images: { type: 'array', items: { type: 'object' } },
+          video_url: STR,
         },
         ['title']
       ),
@@ -438,6 +445,7 @@ function clientToolDefs() {
           description: STR,
           status: STR,
           category_ids: CATIDS,
+          video_url: STR,
         },
         ['id']
       ),
@@ -485,6 +493,7 @@ function clientToolDefs() {
           image_url: STR,
           status: STR,
           category_ids: CATIDS,
+          video_url: STR,
         },
         ['name']
       ),
@@ -505,6 +514,7 @@ function clientToolDefs() {
           image_url: STR,
           status: STR,
           category_ids: CATIDS,
+          video_url: STR,
         },
         ['id']
       ),
@@ -530,6 +540,7 @@ function clientToolDefs() {
           answer: STR,
           category: STR,
           status: STR,
+          video_url: STR,
         },
         ['question']
       ),
@@ -545,6 +556,7 @@ function clientToolDefs() {
           answer_html: STR,
           category: STR,
           status: STR,
+          video_url: STR,
         },
         ['id']
       ),
@@ -572,6 +584,7 @@ function clientToolDefs() {
           rating: { type: 'number' },
           image_url: STR,
           status: STR,
+          video_url: STR,
         },
         ['quote']
       ),
@@ -590,6 +603,7 @@ function clientToolDefs() {
           rating: { type: 'number' },
           image_url: STR,
           status: STR,
+          video_url: STR,
         },
         ['id']
       ),
@@ -619,6 +633,7 @@ function clientToolDefs() {
           phone: STR,
           social_url: STR,
           status: STR,
+          video_url: STR,
         },
         ['name']
       ),
@@ -639,6 +654,7 @@ function clientToolDefs() {
           phone: STR,
           social_url: STR,
           status: STR,
+          video_url: STR,
         },
         ['id']
       ),
@@ -669,6 +685,7 @@ function clientToolDefs() {
           status: STR,
           category_ids: CATIDS,
           sort_order: NUM,
+          video_url: STR,
         },
         ['title']
       ),
@@ -689,6 +706,7 @@ function clientToolDefs() {
           status: STR,
           category_ids: CATIDS,
           sort_order: NUM,
+          video_url: STR,
         },
         ['id']
       ),
@@ -718,6 +736,7 @@ function clientToolDefs() {
           tags: STR,
           status: STR,
           sort_order: NUM,
+          video_url: STR,
         },
         ['name']
       ),
@@ -737,6 +756,7 @@ function clientToolDefs() {
           tags: STR,
           status: STR,
           sort_order: NUM,
+          video_url: STR,
         },
         ['id']
       ),
@@ -933,6 +953,7 @@ function clientToolDefs() {
           active: { type: 'boolean' },
           status: STR,
           sort_order: NUM,
+          video_url: STR,
         },
         ['title']
       ),
@@ -953,6 +974,7 @@ function clientToolDefs() {
           active: { type: 'boolean' },
           status: STR,
           sort_order: NUM,
+          video_url: STR,
         },
         ['id']
       ),
@@ -1265,6 +1287,7 @@ function clientToolDefs() {
           gallery_album_id: NUM,
           status: STR,
           category_ids: CATIDS,
+          video_url: STR,
         },
         ['title']
       ),
@@ -1287,6 +1310,7 @@ function clientToolDefs() {
           gallery_album_id: NUM,
           status: STR,
           category_ids: CATIDS,
+          video_url: STR,
         },
         ['id']
       ),
@@ -1784,6 +1808,7 @@ function clientToolDefs() {
           currency: STR,
           image_url: STR,
           status: { type: 'string', enum: ['draft', 'published'] },
+          video_url: STR,
         },
         ['leadId', 'name']
       ),
@@ -1806,6 +1831,7 @@ function clientToolDefs() {
           currency: STR,
           image_url: STR,
           status: { type: 'string', enum: ['draft', 'published'] },
+          video_url: STR,
         },
         ['id', 'leadId']
       ),

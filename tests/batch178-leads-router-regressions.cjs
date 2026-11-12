@@ -115,7 +115,7 @@ let db;
     n++;
     assert.equal(sm.MODULE_META.leads_router.noNav, true, 'portal/staff module — no public nav page');
     n++;
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod41', 'MODULE_SCRIPT_VER unchanged — the Router has no embed renderer');
+    assert.equal(sm.MODULE_SCRIPT_VER, 'mod42', 'MODULE_SCRIPT_VER unchanged — the Router has no embed renderer');
     n++;
     assert.ok(
       smSrc.includes("if (emb.module_type === 'leads_router') continue;"),

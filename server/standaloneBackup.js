@@ -251,6 +251,16 @@ function renderDetailItemHtml(type, payload, backHref) {
     parts.push(`<div class="bp-mod-content"><p>${esc(it.body)}</p></div>`);
   }
 
+  // Batch 181: an item's optional video (derived embed fields on the
+  // public payload) bakes as the same click-facade the live detail
+  // page renders. Absent = no change to the baked article.
+  if (it.video_embed_url) {
+    const thumb = it.video_thumbnail_url ? `<img src="${esc(it.video_thumbnail_url)}" alt="" loading="lazy">` : '';
+    parts.push(
+      `<div class="bp-mod-video" style="margin-top:14px"><button type="button" class="bp-mod-video-facade" data-bp-video-embed="${esc(it.video_embed_url)}" aria-label="Play video">${thumb}<span class="bp-mod-video-play" aria-hidden="true">▶</span></button></div>`
+    );
+  }
+
   if (type === 'faq' && it.answer) {
     parts.push(`<div class="bp-mod-content"><p>${esc(it.answer)}</p></div>`);
   }

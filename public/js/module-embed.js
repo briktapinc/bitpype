@@ -930,6 +930,10 @@
     if (showBack) html += '<a class="bp-mod-back" href="' + esc(listHref()) + '">← All albums</a>';
     html += '<div class="bp-mod-detail"><h1>' + esc(album.title) + '</h1>';
     if (album.description) html += '<p class="bp-mod-meta">' + esc(album.description) + '</p>';
+    // Batch 181: an album's optional video shows only on its DETAIL
+    // view (showBack) — the single-album list render passes false
+    // and stays byte-identical.
+    if (showBack) html += detailVideoHtml(album);
     var imgs = album.images || [];
     if (!imgs.length) html += '<p class="bp-mod-empty">No images yet.</p>';
     else {
@@ -4299,6 +4303,26 @@
     document.head.appendChild(s);
   }
 
+  // Batch 181: the shared optional-video facade for detail pages.
+  // ONE helper for every detail-capable item type: when the item
+  // carries a derived embed (video_embed_url, resolved server-side
+  // from its optional video_url) the detail view shows the same
+  // click-facade the video module uses; without one it returns ''
+  // and the detail HTML is byte-identical to before.
+  function detailVideoHtml(it) {
+    if (!it || !it.video_embed_url) return '';
+    var thumb = String(it.video_thumbnail_url || '');
+    var html =
+      '<div class="bp-mod-video" style="margin-top:14px">' +
+      '<button type="button" class="bp-mod-video-facade" data-bp-video-embed="' +
+      esc(it.video_embed_url) +
+      '" aria-label="Play video">';
+    if (thumb) html += '<img src="' + esc(thumb) + '" alt="" loading="lazy">';
+    html += '<span class="bp-mod-video-play" aria-hidden="true">▶</span>';
+    html += '</button></div>';
+    return html;
+  }
+
   function renderItem(el, data) {
     var type = data.module_type;
     activeDetailType = type || '';
@@ -4322,8 +4346,10 @@
         (it.code ? '<p style="margin-top:14px"><span class="bp-mod-offer-code">' + esc(it.code) + '</span></p>' : '') +
         (it.expires_at ? '<p class="bp-mod-meta" style="margin-top:10px">Expires ' + esc(it.expires_at) + '</p>' : '') +
         (it.terms ? '<p class="bp-mod-offer-terms" style="margin-top:8px">' + esc(it.terms) + '</p>' : '') +
+        detailVideoHtml(it) +
         '</article>';
       el.innerHTML = html;
+      wireVideoFacades(el);
       return;
     }
     if (type === 'categories') {
@@ -4359,8 +4385,11 @@
         (it.category_name ? '<p class="bp-mod-meta">' + esc(it.category_name) + '</p>' : '') +
         '<div class="bp-mod-menu" style="margin-top:14px">' +
         menuRowHtml(it) +
-        '</div></article>';
+        '</div>' +
+        detailVideoHtml(it) +
+        '</article>';
       el.innerHTML = html;
+      wireVideoFacades(el);
       return;
     }
     if (type === 'careers') {
@@ -4371,9 +4400,11 @@
         '</h1>' +
         (cmeta ? '<p class="bp-mod-meta">' + esc(cmeta) + '</p>' : '') +
         (it.description ? '<div class="bp-mod-job-desc">' + esc(it.description) + '</div>' : '') +
+        detailVideoHtml(it) +
         careersApplyHtml(it) +
         '</article>';
       el.innerHTML = html;
+      wireVideoFacades(el);
       return;
     }
     if (type === 'video') {
@@ -4398,6 +4429,7 @@
         '<p class="bp-mod-meta">' +
         esc(dateLabel(it.published_at || it.created_at)) +
         '</p>' +
+        detailVideoHtml(it) +
         '<div class="bp-mod-content">' +
         (it.body_html || '') +
         '</div></article>';
@@ -4430,6 +4462,7 @@
         esc(it.price_label || '') +
         '</p>' +
         variantHtml +
+        detailVideoHtml(it) +
         '<div class="bp-mod-content"><p>' +
         esc(it.description || '') +
         '</p></div>' +
@@ -4466,6 +4499,7 @@
         '<p class="bp-mod-desc">' +
         esc(it.description || '') +
         '</p>' +
+        detailVideoHtml(it) +
         (it.enrollment_url
           ? '<p style="margin-top:12px"><a class="bp-mod-btn" href="' +
             esc(it.enrollment_url) +
@@ -4494,6 +4528,7 @@
         esc(it.name) +
         '</h1>' +
         (it.category ? '<p class="bp-mod-meta">' + esc(it.category) + '</p>' : '') +
+        detailVideoHtml(it) +
         '<p class="bp-mod-desc">' +
         esc(it.description || '') +
         '</p>' +
@@ -4511,6 +4546,7 @@
         esc(it.name) +
         '</h1>' +
         (it.role_title ? '<p class="bp-mod-meta">' + esc(it.role_title) + '</p>' : '') +
+        detailVideoHtml(it) +
         '<div class="bp-mod-content"><p>' +
         esc(it.bio || '') +
         '</p></div>' +
@@ -4562,6 +4598,7 @@
         '<div class="bp-mod-content"><p>' +
         esc(it.description || '') +
         '</p></div>' +
+        detailVideoHtml(it) +
         evGal +
         (it.ticket_url
           ? '<p style="margin-top:16px"><a class="bp-mod-btn" href="' +
@@ -4573,6 +4610,7 @@
       html +=
         '<article class="bp-mod-detail">' +
         starsHtml(it.rating) +
+        detailVideoHtml(it) +
         '<p class="bp-mod-quote">“' +
         esc(it.quote) +
         '”</p>' +
@@ -4588,6 +4626,7 @@
         '<article class="bp-mod-detail"><h1>' +
         esc(it.question) +
         '</h1>' +
+        detailVideoHtml(it) +
         '<div class="bp-mod-content">' +
         (it.answer_html || '') +
         '</div></article>';
@@ -4603,11 +4642,13 @@
         '<p class="bp-mod-desc">' +
         esc(it.description || '') +
         '</p>' +
+        detailVideoHtml(it) +
         '<p><a class="bp-mod-btn" href="' +
         esc(listHref()) +
         '">Book this service</a></p></article>';
     }
     el.innerHTML = html;
+    wireVideoFacades(el);
     // Batch 127: variant selectors on a product page get their live
     // wiring after the detail HTML lands.
     if (type === 'ecommerce' && it && it.has_variants) wireVariantPicker(el, it);
