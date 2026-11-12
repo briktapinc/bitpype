@@ -6,6 +6,13 @@
  * the server meta (claimExpiresAt / claimExpiresLabel / claimExpired); an
  * expired hold renders the ended copy and the claim buttons keep working.
  * Shows after 10s OR on back/leave (whichever first), only when intent is not positive.
+ * Batch 184 (Ely 2026-11-12): the modal shows at most ONCE per calendar
+ * day per visitor per site — a token-scoped localStorage day stamp,
+ * written when the modal is actually displayed. Every show trigger
+ * consults it, and the beforeunload native prompt respects it too (no
+ * double-nagging in one day). It is a DISPLAY cap only: unlike the
+ * answer flag below it records no interested/uninterested/purchased
+ * state (Batch 36 rule stands — server suppressions stay session-only).
  * Expects window.BitpypeClaim = { apiBase, token }.
  */
 (function () {
@@ -17,6 +24,31 @@
   const DELAY_MS = 10000;
   const storageKey = 'bp_claim_done_' + token.slice(0, 24);
   const laterKey = storageKey + '_later';
+  // Batch 184 daily display cap: bpClaimShown:<token> = 'YYYY-MM-DD'
+  // (the visitor's local calendar day), stamped on actual display.
+  const shownKey = 'bpClaimShown:' + token;
+
+  function todayStamp() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  function shownToday() {
+    try {
+      return !!(window.localStorage && localStorage.getItem(shownKey) === todayStamp());
+    } catch {
+      return false; // private mode: no persistence, cap simply cannot engage
+    }
+  }
+
+  function stampShownToday() {
+    try {
+      if (window.localStorage) localStorage.setItem(shownKey, todayStamp());
+    } catch {
+      /* */
+    }
+  }
 
   try {
     if (window.localStorage && localStorage.getItem(storageKey)) return;
@@ -182,6 +214,9 @@
 
   function triggerShow(/* reason */) {
     if (!canTrigger()) return;
+    // Batch 184: every show trigger (timer, back, visibility, pagehide)
+    // consults the daily cap first — already shown today means not again.
+    if (shownToday()) return;
     showPopup(meta);
     clearTimer();
   }
@@ -357,6 +392,8 @@
     ].join('');
 
     (document.body || document.documentElement).appendChild(overlay);
+    // Batch 184: the modal is actually on screen now — stamp the day.
+    stampShownToday();
     startCountdown(m);
 
     const msg = document.getElementById('bp-claim-msg');
@@ -401,7 +438,10 @@
 
   function onBeforeUnload(e) {
     // Last resort native prompt — custom modals cannot run here.
-    if (!armed || visitAnswered || closedWithoutAnswer || isOpen()) return;
+    // Batch 184: the daily cap binds this prompt too — if the modal was
+    // already shown today (this load or an earlier one), the visitor
+    // leaves in peace; no double-nagging in one day.
+    if (!armed || visitAnswered || closedWithoutAnswer || isOpen() || shownToday()) return;
     e.preventDefault();
     e.returnValue = '';
     return '';

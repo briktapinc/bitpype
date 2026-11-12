@@ -855,12 +855,18 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
   if (exported.dir) exported.analyticsFiles = require('./siteAnalytics').inject(db, siteId, exported.dir);
 
   // Preview claim popup (Yes/No) when the lead has not shown positive intent yet.
+  // Batch 184: hand the injector this db + the site being exported so a
+  // site already live on its own domain ships WITHOUT the claim loader.
   try {
     const leadId = fresh && fresh.lead_id != null ? Number(fresh.lead_id) : 0;
     if (Number.isInteger(leadId) && leadId > 0 && exported.dir) {
       const claimKit = require('../src/claimKit');
-      const inj = claimKit.injectClaimPreviewIntoExport(exported.dir, workspaceId, leadId);
+      const inj = claimKit.injectClaimPreviewIntoExport(exported.dir, workspaceId, leadId, {
+        db,
+        websiteId: siteId,
+      });
       exported.claimPreviewInjected = inj && inj.injected ? inj.injected : 0;
+      if (inj && inj.skipped) exported.claimPreviewSkipped = inj.skipped;
     }
   } catch (e) {
     console.warn('[domain] claim preview inject:', e.message || e);

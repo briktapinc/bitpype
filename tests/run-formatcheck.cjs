@@ -79,6 +79,7 @@ const SCOPE = [
   'server/leadsRouter.js',
   'tests/batch178-leads-router-regressions.cjs',
   'tests/batch183-leads-explorer-regressions.cjs',
+  'tests/batch184-claim-live-domain-regressions.cjs',
 ];
 
 function locatePrettier() {

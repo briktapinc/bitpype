@@ -1639,6 +1639,33 @@ function listLinked(db, opts = {}) {
     .map(publicRow);
 }
 
+/**
+ * Batch 184: the domain system's single answer to "is this website
+ * live on its own domain?" — a site_domains row bound to the website
+ * in status 'linked', the state linkDomainToWebsite writes only AFTER
+ * the Pages custom domain is attached and DNS is ensured (and the
+ * state registrationStatus preserves across refreshes for a linked
+ * site). A merely 'registered' row (bought, not yet linked) is NOT
+ * live: the site still serves from its preview host. Synchronous and
+ * read-only on purpose — hot read paths (the claim meta, the site
+ * exporter) consult it without any Cloudflare call. Returns the raw
+ * row or null; throws if site_domains does not exist yet, so callers
+ * on legacy databases can fail soft.
+ */
+function liveDomainForWebsite(db, websiteId) {
+  const id = Number(websiteId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return (
+    db
+      .prepare(
+        `SELECT * FROM site_domains
+         WHERE website_id = ? AND status = 'linked'
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(id) || null
+  );
+}
+
 function publicRow(row) {
   if (!row) return null;
   let meta = row.meta;
@@ -1718,6 +1745,7 @@ module.exports = {
   linkDomainToWebsite,
   unlinkDomain,
   listLinked,
+  liveDomainForWebsite,
   recordSearchIntent,
   DOMAIN_RE,
 };

@@ -676,6 +676,50 @@ function isIntentPositive(db, lead) {
 }
 
 /**
+ * Batch 184: the claim system's ONE determination of "this site is
+ * live on its own domain" — shared by the claim meta (suppression)
+ * and the exporter (skip the loader injection). A site in that state
+ * is not a prospect (Batch 39, Ely 2026-10-28), whatever store proves
+ * it:
+ *  - legacy: a domain_transactions row in status 'live' for this
+ *    lead+website — written only by the OLD domain flow's completion,
+ *    after register + link + publish succeeded;
+ *  - current: a site_domains row bound to this website in status
+ *    'linked' (cfDomains.liveDomainForWebsite — the domain system's
+ *    own read of its own state; linkDomainToWebsite writes it only
+ *    after the Pages attach + DNS succeed).
+ * The Berks Journal bug (2026-11-12): berksjournal.com was bought
+ * through the NEW domains.* flow, which never writes a
+ * domain_transactions row, so the Batch 39 check alone kept returning
+ * showClaimPrompt=true for a live newspaper and the popup script
+ * armed its exit traps (incl. the beforeunload "Leave site?" dialog)
+ * on every page. Returns { domain, source } or null.
+ */
+function liveDomainForSite(db, leadId, websiteId) {
+  if (!db || !websiteId) return null;
+  try {
+    const txn = db
+      .prepare(
+        `SELECT id, domain FROM domain_transactions
+         WHERE lead_id = ? AND website_id = ? AND status = 'live'
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(leadId, websiteId);
+    if (txn) return { domain: txn.domain || null, source: 'domain_transactions' };
+  } catch {
+    /* table is created lazily by domainFlow.ensureTables */
+  }
+  try {
+    const cfDomains = require('./cfDomains');
+    const row = cfDomains.liveDomainForWebsite(db, websiteId);
+    if (row) return { domain: row.domain_name || null, source: 'site_domains' };
+  } catch {
+    /* site_domains absent on pre-domain-system databases */
+  }
+  return null;
+}
+
+/**
  * Public claim-page meta (no session). Token must be claim action.
  */
 function claimPageMeta(db, workspaceId, leadId) {
@@ -730,21 +774,14 @@ function claimPageMeta(db, workspaceId, leadId) {
   // suppression this is state, not a browser memory: the popup script
   // treats showClaimPrompt=false as session-only (Batch 36), so nothing
   // is persisted client-side for this reason either.
-  let purchasedTxn = null;
-  if (siteId) {
-    try {
-      purchasedTxn = db
-        .prepare(
-          `SELECT id, domain FROM domain_transactions
-           WHERE lead_id = ? AND website_id = ? AND status = 'live'
-           ORDER BY id DESC LIMIT 1`
-        )
-        .get(lead.id, siteId);
-    } catch {
-      purchasedTxn = null; // table is created lazily by domainFlow.ensureTables
-    }
-  }
-  const alreadyPurchased = !!purchasedTxn;
+  // Batch 184: the lookup itself moved to liveDomainForSite (above) —
+  // ONE shared determination, now reading BOTH the legacy
+  // domain_transactions store and the current site_domains store, so
+  // a site that went live through the NEW domains.* flow suppresses
+  // exactly like an old-flow site. (The Journal's domain came through
+  // the new flow; the legacy-only check never saw it.)
+  const liveDomain = liveDomainForSite(db, lead.id, siteId);
+  const alreadyPurchased = !!liveDomain;
   // Hide after Yes (positive) or No (uninterested). "Later" stays showClaimPrompt so
   // a future visit can re-prompt (client may session-hide until then).
   const showClaimPrompt = !alreadyPurchased && !intentPositive && !interested && !uninterested;
@@ -768,7 +805,7 @@ function claimPageMeta(db, workspaceId, leadId) {
     alreadyInterested: !!interested,
     alreadyUninterested: !!uninterested,
     alreadyPurchased,
-    purchasedDomain: purchasedTxn ? purchasedTxn.domain || null : null,
+    purchasedDomain: liveDomain ? liveDomain.domain : null,
     alreadyDeferred: laterCount > 0,
     laterCount,
     intentPositive,
@@ -779,8 +816,17 @@ function claimPageMeta(db, workspaceId, leadId) {
 /**
  * Inject claim Yes/No popup loader into exported preview HTML files.
  * Script loads from APP_URL so Cloudflare Pages previews work cross-origin.
+ *
+ * Batch 184 defence-in-depth: a site already live on its own domain is
+ * not a prospect (Batch 39 ruling) — when the caller supplies its db
+ * (opts.db, plus opts.websiteId for the site being exported), the
+ * shared liveDomainForSite determination SKIPS the injection entirely,
+ * so the loader never ships in that site's pages at all. Without a db
+ * the injection proceeds as before and the meta-side suppression in
+ * claimPageMeta still disarms the loader at runtime
+ * (showClaimPrompt=false → the popup script arms nothing).
  */
-function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId) {
+function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId, opts = {}) {
   const fs = require('fs');
   const path = require('path');
   // All .html files under dir, recursively, as dir-relative paths.
@@ -804,6 +850,22 @@ function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId) {
   };
   const dir = String(exportDir || '');
   if (!dir || !fs.existsSync(dir)) return { injected: 0 };
+  if (opts && opts.db) {
+    let websiteId = opts.websiteId != null ? Number(opts.websiteId) || null : null;
+    if (!websiteId) {
+      try {
+        const site = opts.db
+          .prepare('SELECT id FROM websites WHERE lead_id = ? ORDER BY id DESC LIMIT 1')
+          .get(leadId);
+        websiteId = site ? Number(site.id) || null : null;
+      } catch {
+        websiteId = null;
+      }
+    }
+    if (websiteId && liveDomainForSite(opts.db, leadId, websiteId)) {
+      return { injected: 0, skipped: 'site_live_on_own_domain' };
+    }
+  }
   const claimUrl = buildClaimUrl(workspaceId, leadId);
   if (!claimUrl) return { injected: 0, reason: 'no_claim_url' };
   let token = '';
@@ -822,7 +884,7 @@ function injectClaimPreviewIntoExport(exportDir, workspaceId, leadId) {
     '',
     '<!-- bitpype-claim-preview -->',
     `<script>window.BitpypeClaim=${JSON.stringify({ apiBase, token, v: 4 })};</script>`,
-    `<script src="${apiBase}/js/claim-preview.js?v=8" defer></script>`,
+    `<script src="${apiBase}/js/claim-preview.js?v=9" defer></script>`,
     '<!-- /bitpype-claim-preview -->',
     '',
   ].join('\n');
@@ -892,18 +954,25 @@ function injectClaimPreviewIntoAllExports(rootDir, opts = {}) {
       if (!parsed || !parsed.websiteId) continue;
       let workspaceId = parsed.workspaceId || null;
       let leadId = null;
+      let hitDb = null;
       if (resolveLead) {
         const hit = resolveLead(workspaceId, parsed.websiteId);
         if (hit) {
           workspaceId = hit.workspaceId;
           leadId = hit.leadId;
+          // Batch 184: a resolver that can hand over its db lets the
+          // live-domain skip apply on the backfill path too.
+          if (hit.db) hitDb = hit.db;
         }
       }
       if (!workspaceId || !leadId) {
         skipped++;
         continue;
       }
-      const r = injectClaimPreviewIntoExport(full, workspaceId, leadId);
+      const r = injectClaimPreviewIntoExport(full, workspaceId, leadId, {
+        db: hitDb,
+        websiteId: parsed.websiteId,
+      });
       if (r && r.injected > 0) {
         folders++;
         files += r.injected;
@@ -936,6 +1005,7 @@ module.exports = {
   buildBusinessCard,
   buildClaimKit,
   claimPageMeta,
+  liveDomainForSite,
   isIntentPositive,
   injectClaimPreviewIntoExport,
   injectClaimPreviewIntoAllExports,

@@ -28,7 +28,7 @@
  *     from decide()); server-meta suppression now sets the in-memory
  *     visitAnswered guard only, so a lead reset makes the popup show
  *     again on the next visit in the same browser. Snippet bumped to
- *     claim-preview.js?v=8.
+ *     claim-preview.js?v=9 (v8 in the Batch 36 fix; bumped by Batch 184).
  *
  * Negative proofs: removing the client-email block from
  * onDomainCheckoutPaid fails A/B/C; restoring the raw prefill fails the
@@ -299,9 +299,9 @@ async function main() {
     assert.ok(!branch.includes('persistDone'), 'suppression never persists the done flag');
     assert.ok(!branch.includes('setItem'), 'suppression writes no storage at all');
   });
-  check('FIX3: export snippet now loads claim-preview.js?v=8', () => {
-    assert.ok(kitSrc.includes('claim-preview.js?v=8'), 'claimKit injects ?v=8');
-    assert.ok(!kitSrc.includes('claim-preview.js?v=7'), 'old ?v=7 gone');
+  check('FIX3: export snippet now loads claim-preview.js?v=9', () => {
+    assert.ok(kitSrc.includes('claim-preview.js?v=9'), 'claimKit injects ?v=9');
+    assert.ok(!kitSrc.includes('claim-preview.js?v=8'), 'old ?v=8 gone');
   });
 
   console.log(JSON.stringify({ file: 'domain-payment-email-regressions', passed: true, checks: results.length }));

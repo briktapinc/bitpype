@@ -18,7 +18,7 @@
  *   C — the shipped popup script carries the expiry date line, the
  *       countdown element, the expired-hold copy, and "Get it now!"
  *       bound to the SAME decide('interested') action; the injected
- *       snippet loads claim-preview.js?v=8 (bumped by Batch 36).
+ *       snippet loads claim-preview.js?v=9 (v8 bumped by Batch 36; v9 by Batch 184 for the daily display cap).
  *   D — a fixture whose hold already ended renders the expired state
  *       (claimExpired, prompt still shown) and the claim action still
  *       posts through applyClaimResponse → engaged + interested event.
@@ -121,11 +121,11 @@ async function main() {
   const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-claim-hold-'));
   fs.writeFileSync(path.join(exportDir, 'index.html'), '<html><body>fixture</body></html>', 'utf8');
   let injectedHtml = '';
-  check('B: popup re-injection ships claim-preview.js?v=8 and does not move the expiry', () => {
+  check('B: popup re-injection ships claim-preview.js?v=9 and does not move the expiry', () => {
     const r = claimKit.injectClaimPreviewIntoExport(exportDir, 1, leadA);
     assert.equal(r.injected, 1);
     injectedHtml = fs.readFileSync(path.join(exportDir, 'index.html'), 'utf8');
-    assert.ok(injectedHtml.includes('claim-preview.js?v=8'), 'snippet loads the v8 popup script');
+    assert.ok(injectedHtml.includes('claim-preview.js?v=9'), 'snippet loads the v9 popup script');
     assert.ok(injectedHtml.includes('bitpype-claim-preview'), 'snippet markers present');
     const after = claimKit.claimPageMeta(db, 1, leadA);
     assert.equal(after.claimExpiresAt, expectedExpiryA);
@@ -163,9 +163,9 @@ async function main() {
     assert.ok(popupSrc.includes('you can still claim this website'), 'expired state keeps the claim open');
     assert.ok(popupSrc.includes("el.textContent = 'Hold ended'"), 'live flip at zero present');
   });
-  check('C: snippet version bumped to v=8 in claimKit', () => {
-    assert.ok(kitSrc.includes('claim-preview.js?v=8'), 'claimKit injects ?v=8');
-    assert.ok(!kitSrc.includes('claim-preview.js?v=7'), 'old ?v=7 gone');
+  check('C: snippet version bumped to v=9 in claimKit', () => {
+    assert.ok(kitSrc.includes('claim-preview.js?v=9'), 'claimKit injects ?v=9');
+    assert.ok(!kitSrc.includes('claim-preview.js?v=8'), 'old ?v=8 gone');
   });
 
   /* ---------------- D: past expiry — expired state, claim still posts ---------------- */
