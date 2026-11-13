@@ -694,6 +694,18 @@ function puppeteerLaunchOpts() {
   const launchOpts = {
     headless: true,
     protocolTimeout: 30000,
+    /* The audit browser must never consume the HOST process's shutdown
+       signals. With puppeteer's defaults (handleSIG* = true) a live shared
+       browser swallows the first SIGTERM: puppeteer kills the Chrome
+       process group as cleanup but leaves the host alive, so a host that
+       relies on default signal termination (e.g. a spawned server child)
+       hangs forever. Batch 185 keeps the browser alive across audits, so
+       this matters now and did not when each audit closed its own browser.
+       The host's own signal semantics apply instead; spacingQa closes the
+       browser itself (idle close + deadline force-close). */
+    handleSIGINT: false,
+    handleSIGTERM: false,
+    handleSIGHUP: false,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
   };
   const candidates = [
