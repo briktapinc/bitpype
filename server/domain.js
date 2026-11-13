@@ -1928,6 +1928,37 @@ async function sitesGenerate(workspaceId, leadId, opts) {
 async function sitesQa(workspaceId, id) {
   return withDb(workspaceId, (db) => websiteEngine().qaSite(db, id));
 }
+// Batch 185 — export-time geometry audit: measure the FINAL exported
+// HTML (post module-sync, post injectors) with spacingQa's geometry
+// audit and stamp the summary onto the export result + the tenant
+// settings row spacing_audit.<siteId>, so a site's measured spacing
+// state travels with every export/preview. Never throws: a browser-
+// less environment records a skipped audit instead of blocking the
+// export (qaSite's spacing check remains the fail-loud gate).
+async function attachSpacingAudit(db, siteId, exported) {
+  let audit;
+  try {
+    audit = await require('./spacingQa').assessExportedFiles(exported);
+  } catch (e) {
+    audit = {
+      pass: null,
+      skipped: String((e && e.message) || e).slice(0, 200),
+      totalViolations: null,
+      byKind: {},
+      filesAudited: 0,
+      auditedAt: new Date().toISOString(),
+    };
+  }
+  try {
+    const slim = { ...audit, violations: (audit.violations || []).slice(0, 10) };
+    db.prepare(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(`spacing_audit.${Number(siteId)}`, JSON.stringify(slim));
+  } catch {
+    /* the stamp is best-effort; the export result always carries it */
+  }
+  return audit;
+}
 async function sitesExport(workspaceId, id) {
   return withDb(workspaceId, async (db) => {
     // Batch 27: archived sites vanish from published/export routes.
@@ -1935,10 +1966,12 @@ async function sitesExport(workspaceId, id) {
     const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, Number(id));
     const exported = materializeWebsiteExport(db, workspaceId, Number(id), { adsense: adsenseCfg });
     const opt = await optimizeExportImages(exported);
+    const spacingAudit = await attachSpacingAudit(db, Number(id), exported);
     return {
       path: exported.dir || exported.path,
       folder: exported.folder,
       files: exported.files || [],
+      spacingAudit,
       imageOptimize:
         exported.imageOptimize ||
         (opt && {
@@ -3856,6 +3889,7 @@ async function sitesPreview(workspaceId, id, opts = {}) {
     const adsenseCfg = await resolveAdsenseForSite(workspaceId, db, siteId);
     const exported = materializeWebsiteExport(db, workspaceId, siteId, { adsense: adsenseCfg });
     await optimizeExportImages(exported);
+    const spacingAudit = await attachSpacingAudit(db, siteId, exported);
     const base = appBaseUrl();
     const appUrl = base ? `${base}/site-previews/${exported.folder}/` : null;
 
@@ -3919,6 +3953,7 @@ async function sitesPreview(workspaceId, id, opts = {}) {
               deploymentId: cfResult.deploymentId || null,
               via: 'cloudflare',
               path: exported.path,
+              spacingAudit,
               folder: exported.folder,
               files: exported.files || [],
               opened: false,
@@ -3961,6 +3996,7 @@ async function sitesPreview(workspaceId, id, opts = {}) {
               deploymentId: cfResult.deploymentId || null,
               via: 'cloudflare_pending_health',
               path: exported.path,
+              spacingAudit,
               folder: exported.folder,
               files: exported.files || [],
               cloudflare: cfError,
@@ -4008,6 +4044,7 @@ async function sitesPreview(workspaceId, id, opts = {}) {
       folder: exported.folder,
       files: exported.files || [],
       via: 'app_url',
+      spacingAudit,
       cloudflare: cfError || (cfResult && cfResult.url ? { url: cfResult.url, skipped: 'unhealthy' } : null),
       opened: false,
     };

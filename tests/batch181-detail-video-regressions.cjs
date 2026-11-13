@@ -16,7 +16,7 @@
  * stay out.
  *
  * What this pins:
- *   Part 1 — source pins: MODULE_SCRIPT_VER mod42, DETAIL_VIDEO_TYPES
+ *   Part 1 — source pins: MODULE_SCRIPT_VER mod43, DETAIL_VIDEO_TYPES
  *     (exactly the 13), the shared helpers, the video_url column on
  *     all 13 tables, the shared renderer helper + per-branch wiring,
  *     the standalone facade, MCP (server + catalog) schema parity,
@@ -87,7 +87,7 @@ const countOccurrences = (haystack, needle) => haystack.split(needle).length - 1
   {
     let n = 0;
     const smSrc = read('server/siteModules.js');
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod42'"), 'MODULE_SCRIPT_VER bumped to mod42');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod43'"), 'MODULE_SCRIPT_VER bumped to mod43');
     n++;
     assert.ok(smSrc.includes('function normalizeItemVideoUrl(data, row)'), 'shared write-side normalizer exists');
     n++;

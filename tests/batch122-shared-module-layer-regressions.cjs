@@ -133,7 +133,7 @@ const ymd = (offsetDays) => new Date(Date.now() + offsetDays * dayMs).toISOStrin
       assert.ok(providers.includes(must), `${must} is a provider`);
       n++;
     }
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod42', 'embed script version bumped for the shared-gallery rendering');
+    assert.equal(sm.MODULE_SCRIPT_VER, 'mod43', 'embed script version bumped for the shared-gallery rendering');
     n++;
 
     // Agent fences.

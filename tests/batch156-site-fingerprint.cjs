@@ -401,8 +401,8 @@ const MODEL_BASE = { theme: THEME_BASE, pages: fixturePages() };
     const digest = crypto.createHash('sha256').update(html).digest('hex');
     assert.equal(
       digest,
-      '7946e792f2231420c421261920a44fefa9ad92d94ad9604c4dbc39e4268a71b7',
-      'fixture render is byte-identical to the Batch 155 tree output (fingerprint code changes no render path)'
+      '33a96f61db779a7d05d66398e73096ca9a2b9bc3d19e42a55508baa1f9a6f7a0',
+      'fixture render is byte-identical to the Batch 185 tree output (re-pinned at the Batch 185 finisher: the spacing guard CSS grew by design — display:grid guarantee + mobile collapse + faq margin floor — so every render changed bytes; the fingerprint code still changes no render path)'
     );
     n++;
     group('Part 4 render invariance', n);

@@ -689,6 +689,14 @@ ${icons}
 /*   the floor is byte-identical. The one thing neither layer can      */
 /*   rescue is authored !important below the floor — that is exactly   */
 /*   what the spacing QA check fails loudly with measurements.         */
+/*                                                                     */
+/* Batch 185: the script also un-clips fixed-height platform cards     */
+/*   whose content outgrows the box (unclip), and spacingQa's          */
+/*   geometry audit adds content-clip / text-spill / sibling-overlap   */
+/*   / text-overlap measurement — design QA (qaSite 'spacing') and an  */
+/*   export-time audit of the shipped files (sitesExport stamps       */
+/*   spacingAudit + settings['spacing_audit.<id>']). The 135 checks    */
+/*   were blind to all three classes Ely recorded on website 52.       */
 /* ------------------------------------------------------------------ */
 
 function spacingTokens() {
@@ -712,6 +720,23 @@ function spacingGuardCss() {
     'table{max-width:100%}',
     '.bp-table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}',
     '.bp-table-scroll>table{width:max-content!important;max-width:none!important;min-width:100%}',
+    /* Batch 185 — display-mode guarantee. The renderers emit the
+       platform grid containers with an inline grid-template-columns,
+       but the display:grid rule lives in the base CSS, which a
+       baseCss-off build drops entirely: the container then computes
+       to display:block and the cards stack at gap 0 (the 1HP root
+       cause, measured 2026-11-13). The guard ships in EVERY render,
+       so the display mode is guaranteed here, after authored CSS. */
+    '.grid,.cards-grid,.gallery-grid,.contact-grid,.footer-grid,.hero-grid,.cols,.text-image-grid{display:grid}',
+    /* The base stylesheet's mobile single-column collapse for those
+       same containers (mirrored verbatim) — it vanishes with the
+       base CSS too, leaving 3-column grids crushed at 390px with
+       card text overflowing its cell into the next card. */
+    '@media (max-width:700px){.grid,.cards-grid,.gallery-grid,.contact-grid,.footer-grid,.hero-grid,.cols,.cols-2,.cols-3,.cols-4,.text-image-grid,.cards-grid.cols-2,.cards-grid.cols-3,.cards-grid.cols-4{grid-template-columns:1fr!important}}',
+    /* FAQ items keep at least the standard gap under them (the base
+       rule used 12px and vanishes with baseCss off; a negative
+       authored margin then stacks items into each other). */
+    'section[data-ws-section-type="faq"] details{margin-top:0;margin-bottom:var(--bp-space-card-gap)}',
   ].join('\n');
 }
 
@@ -754,9 +779,19 @@ function spacingGuardScript() {
     'function up(el,props,f){var cs=getComputedStyle(el);for(var i=0;i<props.length;i++){var v=parseFloat(cs[props[i]]);if(isNaN(v))v=0;if(v<f)el.style[props[i]]=f+"px";}}' +
     'function gap(el){var cs=getComputedStyle(el);if(cs.display!=="grid")return;["columnGap","rowGap"].forEach(function(p){var v=parseFloat(cs[p]);if(isNaN(v))v=0;if(v<G)el.style[p]=G+"px";});}' +
     'function wrapTables(){document.querySelectorAll("table").forEach(function(tbl){if(tbl.closest(".bp-table-scroll"))return;var p=tbl.parentElement;if(!p)return;var w=document.createElement("div");w.className="bp-table-scroll";p.insertBefore(w,tbl);w.appendChild(tbl);});}' +
+    // Batch 185: fixed-height rescue — a platform card whose content
+    // is taller than its box (authored height + long copy: text
+    // clipped away or spilling past the border, Ely's 2026-11-13
+    // recording) gets height:auto inline so the box grows to fit.
+    // Grid/flex items are left alone (their height is the layout's,
+    // not the card's); an authored !important height still wins over
+    // the inline style — that residue is what the geometry QA fails
+    // loudly with measurements.
+    'function unclip(el){var p=el.parentElement;if(p){var pd=getComputedStyle(p).display;if(/grid|flex/.test(pd))return;}if(el.scrollHeight>el.clientHeight+1)el.style.height="auto";}' +
     'function run(){' +
     'document.querySelectorAll(".container,.nav-inner,.footer-grid").forEach(function(el){up(el,["paddingLeft","paddingRight"],C);});' +
-    'document.querySelectorAll(".card,.review-card").forEach(function(el){up(el,["paddingTop","paddingRight","paddingBottom","paddingLeft"],P);});' +
+    'document.querySelectorAll(".card,.review-card,.col-cell").forEach(function(el){up(el,["paddingTop","paddingRight","paddingBottom","paddingLeft"],P);});' +
+    'document.querySelectorAll(".card,.review-card").forEach(function(el){unclip(el);});' +
     'document.querySelectorAll(".grid,.cards-grid,.gallery-grid,.footer-grid,.contact-grid,.cols").forEach(gap);' +
     'wrapTables();' +
     '}' +

@@ -16,6 +16,12 @@
  *     refused, save-validation matrix, descriptor availability.
  *   Part 3 — BYTE-IDENTICAL DEFAULT: knob-free fixture pages render
  *     to the exact sha256 captured from the PRE-148 renderer (golden
+ *     pins RE-PINNED at the Batch 185 finisher: Batch 185 deliberately
+ *     extends the always-on spacing guard CSS — display:grid guarantee,
+ *     mobile single-column collapse, faq margin floor — so every render
+ *     changed bytes; the knob-free guarantee itself is unchanged: with
+ *     no knobs set the output is exactly the current platform renderer's,
+ *     and set-then-unset still returns to the pinned hash). (golden
  *     pins below; the footer carries the calendar year, so the pins
  *     hold for renders in 2026 — the structural no-bp-sec assertions
  *     are the year-proof half of the guarantee). Set-then-unset a
@@ -107,16 +113,16 @@ const goldenPages = () => [
   },
 ];
 const GOLDEN = {
-  renderPageHome: 'ebc6aae972876721914cdd303cc4b5a1437df06eea82bf6ce2b2e7623ebfe66a',
-  renderPageAbout: 'b8bb5684fd70b1a5fcdfd6ec6cc3a0230d80ff9e19983d7ac21f64d55156a032',
-  renderPageHomePreview: '2824388a41fe2c68cb5db7572782009d66ebd263ec289657f2fa9c8e34188826',
-  renderSiteStacked: 'eca83e219d5ebf81f4a43b69a735e7b76ff415b303dad95fffe84f885041c1a1',
+  renderPageHome: '38d987084a59f410597fdc415e786a5c73f12905face549a20c9997d4456c89e',
+  renderPageAbout: 'ab435b8e13e968ab5688470814bb21b704ded82a7125f92caba59a47b1b8315f',
+  renderPageHomePreview: '05bd77c517a7ce941e74800887215218900ae207f74b86ea36809da3270bfb6d',
+  renderSiteStacked: 'b84c191ccf929559d1d25b67bca65abffe267dd835fac623cb7aa1a4c1893d80',
   /* Export goldens: writeStaticPages output captured from the same
    * pristine pre-148 engine (the exporter adds its own transforms —
    * detail meta, legal links — on top of renderPage, so export pins
    * are pinned against export output, not render output). */
-  exportIndex: '8baa9bf29cfc8ba2dbcc8ba0919e96b2d443273dd112a24ec71c8eddc5d8aaa3',
-  exportAbout: '3852bc947aac1d3eb204b733d191a39c9f80d63881b5954430f55ed71a627d57',
+  exportIndex: '24077329e504bf5ce9426d8386ffd977e68f65ca1ae0e05d1e801eb9fe7af431',
+  exportAbout: '9ba791b07cb92cbbd0c8122f60346300fe015262150e552d7f6c26a4a5872766',
 };
 
 const LEAD_A = 148001;

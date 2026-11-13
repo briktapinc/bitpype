@@ -78,7 +78,9 @@ const SCRIPT_ATTR = 'data-bitpype-module-script';
 // convention — both parked builds had pinned mod40 on their own trees.
 // Batch 181: mod42 — the shared detailVideoHtml facade joins the
 // detail renderer (every detail-capable item type's optional video).
-const MODULE_SCRIPT_VER = 'mod42';
+// Batch 185: mod43 — the module spacing floor joins module-embed.js
+// (every bp-mod card class: height:auto + the card-pad floor).
+const MODULE_SCRIPT_VER = 'mod43';
 
 const MODULE_META = {
   blog: { label: 'Blog', defaultTitle: 'Blog', defaultSlug: 'blog' },

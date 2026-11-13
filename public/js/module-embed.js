@@ -170,7 +170,7 @@
       '}',
       '.bitpype-module-embed .bp-mod-faq{display:grid;gap:0.65rem;}',
       '.bitpype-module-embed .bp-mod-faq details{',
-      'border:1px solid var(--bp-mod-line);border-radius:1rem;padding:0.85rem 1rem;',
+      'border:1px solid var(--bp-mod-line);border-radius:1rem;padding:max(0.85rem,var(--bp-space-card-pad,16px)) 1rem;',
       'background:color-mix(in srgb,var(--bp-mod-paper) 96%,var(--bp-mod-ink));',
       '}',
       '.bitpype-module-embed .bp-mod-faq summary{',
@@ -199,7 +199,7 @@
       'padding:0.7rem 0.85rem;font:inherit;background:var(--bp-mod-paper);color:var(--bp-mod-ink);',
       '}',
       '.bitpype-module-embed .bp-mod-slots{',
-      'display:flex;flex-wrap:wrap;gap:0.5rem;',
+      'display:flex;flex-wrap:wrap;gap:var(--bp-space-card-gap,16px);',
       '}',
       '.bitpype-module-embed .bp-mod-slot{',
       'appearance:none;border:1.5px solid var(--bp-mod-line);border-radius:999px;',
@@ -361,7 +361,7 @@
       '.bitpype-module-embed .bp-mod-social-card{border:1px solid var(--bp-mod-line);border-radius:1.1rem;background:var(--bp-mod-paper);overflow:hidden;display:flex;flex-direction:column;}',
       '.bitpype-module-embed .bp-mod-social-card img{width:100%;height:180px;object-fit:cover;display:block;}',
       '.bitpype-module-embed .bp-mod-socialfeed.is-list .bp-mod-social-card img{height:150px;}',
-      '.bitpype-module-embed .bp-mod-social-body{padding:0.95rem 1.05rem 1.1rem;display:flex;flex-direction:column;gap:0.5rem;flex:1;}',
+      '.bitpype-module-embed .bp-mod-social-body{padding:max(0.95rem,var(--bp-space-card-pad,16px)) 1.05rem 1.1rem;display:flex;flex-direction:column;gap:0.5rem;flex:1;}',
       '.bitpype-module-embed .bp-mod-social-meta{display:flex;align-items:center;gap:0.55rem;font-size:0.84rem;color:var(--bp-mod-muted);}',
       '.bitpype-module-embed .bp-mod-social-badge{font-weight:800;text-transform:uppercase;letter-spacing:0.05em;font-size:0.68rem;color:var(--bp-mod-accent);border:1px solid currentColor;border-radius:999px;padding:0.1rem 0.55rem;}',
       '.bitpype-module-embed .bp-mod-social-text{margin:0;line-height:1.55;font-size:0.96rem;}',
@@ -535,6 +535,21 @@
       '.bitpype-module-embed .bp-mod-reply-btn{background:none;border:none;padding:0;font:inherit;font-size:0.88rem;color:var(--bp-mod-accent);cursor:pointer;font-weight:600;}',
       '.bitpype-module-embed .bp-mod-comment-form{margin-top:1.2rem;}',
       '.bitpype-module-embed .bp-mod-reply-form{margin-top:0.7rem;}',
+      // Batch 185 — module spacing floor: EVERY module card class
+      // carries the platform card floor (Batch 135 floored only the
+      // book row + news card; the rest of the card family shipped on
+      // authored values alone). height:auto keeps a host theme's
+      // fixed height from clipping card content. The UNSCOPED
+      // padding floor covers the server-rendered mounts that never
+      // sit under .bitpype-module-embed (the Batch 135 news-card
+      // lesson: those mounts rendered at 0px); under an embed mount
+      // the scoped rules above (higher specificity, larger values)
+      // still win. Card classes whose design carries padding on an
+      // inner body instead (bp-mod-card, bp-mod-social-card — covers
+      // sit flush) get the height floor only.
+      '.bitpype-module-embed .bp-mod-card,.bitpype-module-embed .bp-mod-dt-card,.bitpype-module-embed .bp-mod-gr-card,.bitpype-module-embed .bp-mod-member-card,.bitpype-module-embed .bp-mod-price-card,.bitpype-module-embed .bp-mod-social-card,.bitpype-module-embed .bp-mod-empty-card,.bitpype-module-embed .bp-mod-news-card,.bitpype-module-embed .bp-mod-job,.bitpype-module-embed .bp-mod-tier{height:auto;}',
+      '.bp-mod-card,.bp-mod-dt-card,.bp-mod-gr-card,.bp-mod-member-card,.bp-mod-price-card,.bp-mod-social-card,.bp-mod-empty-card,.bp-mod-news-card,.bp-mod-job,.bp-mod-tier{height:auto;}',
+      '.bp-mod-dt-card,.bp-mod-gr-card,.bp-mod-member-card,.bp-mod-price-card,.bp-mod-empty-card,.bp-mod-news-card,.bp-mod-job,.bp-mod-tier{padding:var(--bp-space-card-pad,16px);}',
     ].join('');
     var style = document.createElement('style');
     style.id = STYLE_ID;

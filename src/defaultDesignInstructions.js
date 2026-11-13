@@ -119,7 +119,7 @@ CSS: full rules in theme.customCss; inline <style> on home if preview looks unst
 
 Ignore noisy QA artifacts (stray "null", unparseable AI QA, data-URI registry complaints, template-conformity). Real QA: links, unique nav, one form, no overflow at 390px, photos visible, spacing check green.
 
-SPACING (platform-enforced — Batch 135): the platform guard floors every page (section inset 28px/22px ≤700px, container ≥20px, card padding+gap ≥16px); website.qa's spacing check fails with px measurements on text <16px from a viewport/card edge, touching cards, or overflow at 390/980/1440. NOT done while it fails: fix what it names by raising padding/gaps (never !important flush rules or negative-margin bleeds), re-run until green.
+SPACING (platform-enforced — Batches 135/185): the guard floors every page (28/22px inset, ≥20px containers, ≥16px card pad/gap, grids always on). website.qa measures geometry at 390/980/1440, failing text <16px from a viewport/box edge, OVERLAPPING siblings or text, overflow, content CLIPPED inside fixed-height boxes or spilling past borders; exports re-measure files. Fix what it names: raise padding/gaps, size boxes to content, re-run until green.
 
 FORMS (critical — modules only, never hand-rolled HTML): Always use a native module for forms. Prefer the contact_form section type for the main contact page. For additional/custom forms, call forms.create then place with a form or bitpype_form section ({ type: "bitpype_form", content: { formId } }) or website.addBlock (blockType form + formId). Never write raw <form>, <form action>, iframes, or form-embed script tags — website.edit / design.deliver / design.saveWebsite strip hand-rolled <form> tags and return a warning. One functional form/embed per page.
 

@@ -180,6 +180,7 @@ const checks = [
   'batch182-domain-flow-regressions',
   'batch183-leads-explorer-regressions',
   'batch184-claim-live-domain-regressions',
+  'batch185-spacing-enforcement-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

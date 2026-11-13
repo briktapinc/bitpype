@@ -110,7 +110,7 @@ async function main() {
     n++;
     assert.equal(sm.MODULE_META.custom_code.label, 'Custom Code', 'portal label is Custom Code');
     n++;
-    assert.equal(sm.MODULE_SCRIPT_VER, 'mod42', 'embed script version bumped for renderCustomCode');
+    assert.equal(sm.MODULE_SCRIPT_VER, 'mod43', 'embed script version bumped for renderCustomCode');
     n++;
     const share = require(path.join(root, 'server/moduleShare.js'));
     assert.deepEqual(

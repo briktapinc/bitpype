@@ -89,7 +89,7 @@ async function json(res) {
     n++;
     assert.ok(smSrc.includes('function detailExportContext(db, leadId)'), 'detailExportContext exists');
     n++;
-    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod42'"), 'MODULE_SCRIPT_VER bumped to mod36');
+    assert.ok(smSrc.includes("const MODULE_SCRIPT_VER = 'mod43'"), 'MODULE_SCRIPT_VER bumped to mod36');
     n++;
     const typesBlock = /const MODULE_TYPES = \[([\s\S]*?)\];/.exec(smSrc);
     assert.ok(typesBlock, 'MODULE_TYPES block found');
@@ -427,7 +427,7 @@ async function json(res) {
     );
     n++;
     assert.ok(
-      detailHtml.includes('module-embed.js?v=mod42'),
+      detailHtml.includes('module-embed.js?v=mod43'),
       'detail.html loads the module embed script at the current MODULE_SCRIPT_VER (mod39 after the Batch 139 finisher rotation)'
     );
     n++;
@@ -510,7 +510,7 @@ async function json(res) {
         n++;
       }
 
-      const jsRes = await fetch(`${BASE}/js/module-embed.js?v=mod42`);
+      const jsRes = await fetch(`${BASE}/js/module-embed.js?v=mod43`);
       assert.equal(jsRes.status, 200, 'module-embed.js serves');
       n++;
       const jsText = await jsRes.text();
