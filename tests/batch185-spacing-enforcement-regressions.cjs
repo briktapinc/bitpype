@@ -33,6 +33,7 @@
  *     load under the sandbox Node; the in-image gate runs it.
  */
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -575,6 +576,23 @@ async function part3() {
       isTimeout,
       'qa audit honours its budget'
     );
+    n += 1;
+  });
+  await acheck('audits never hold a short-lived process open: a one-shot audit child exits on its own', async () => {
+    const qaPath = path.join(__dirname, '..', 'server', 'spacingQa.js');
+    const script =
+      `const spacingQa = require(${JSON.stringify(qaPath)});\n` +
+      `(async () => { const r = await spacingQa.assessExportedFiles({ dir: ${JSON.stringify(dir)}, files: ['index.html'] }); ` +
+      `console.log('CHILD_AUDIT_DONE pass=' + r.pass); })().catch((e) => { console.error(e); process.exit(1); });`;
+    const child = spawnSync(process.execPath, ['-e', script], {
+      cwd: path.join(__dirname, '..'),
+      env: process.env,
+      encoding: 'utf8',
+      timeout: 60000,
+    });
+    assert.ok(!child.error, `audit child did not exit on its own (${child.error && child.error.message})`);
+    assert.equal(child.status, 0, `audit child failed: ${child.stderr || child.stdout}`);
+    assert.ok(String(child.stdout).includes('CHILD_AUDIT_DONE'), 'audit child completed its audit');
     n += 1;
   });
 

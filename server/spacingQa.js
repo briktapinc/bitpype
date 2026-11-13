@@ -720,8 +720,33 @@ function puppeteerLaunchOpts() {
 // browser is force-closed (its target may be wedged) and the audit
 // throws SPACING_AUDIT_TIMEOUT, which callers already record as a
 // skipped audit / skip-pass. An audit must never stall an export.
+// The shared browser must also never hold a SHORT-LIVED process open
+// (gate suites, one-shot callers): when the last in-flight audit
+// finishes, the browser closes after a short idle grace — an audit
+// starting inside the grace reuses it, so server bursts keep the
+// sharing benefit while drained processes exit on their own.
 let sharedAuditBrowser = null;
 let sharedAuditBrowserPromise = null;
+let auditsInFlight = 0;
+let auditIdleTimer = null;
+const AUDIT_IDLE_CLOSE_MS = 2000;
+function noteAuditStart() {
+  auditsInFlight += 1;
+  if (auditIdleTimer) {
+    clearTimeout(auditIdleTimer);
+    auditIdleTimer = null;
+  }
+}
+function noteAuditEnd() {
+  auditsInFlight = Math.max(0, auditsInFlight - 1);
+  if (auditsInFlight === 0 && !auditIdleTimer) {
+    auditIdleTimer = setTimeout(() => {
+      auditIdleTimer = null;
+      dropAuditBrowser().catch(() => {});
+    }, AUDIT_IDLE_CLOSE_MS);
+    if (auditIdleTimer.unref) auditIdleTimer.unref();
+  }
+}
 async function auditBrowser() {
   if (sharedAuditBrowser && sharedAuditBrowser.connected) return sharedAuditBrowser;
   if (!sharedAuditBrowserPromise) {
@@ -754,6 +779,7 @@ async function dropAuditBrowser() {
   }
 }
 async function withAuditDeadline(work, budgetMs, label) {
+  noteAuditStart();
   let timer = null;
   const inner = Promise.resolve().then(work);
   inner.catch(() => {}); // an abandoned audit must not surface as unhandled
@@ -773,6 +799,7 @@ async function withAuditDeadline(work, budgetMs, label) {
     throw e;
   } finally {
     if (timer) clearTimeout(timer);
+    noteAuditEnd();
   }
 }
 
