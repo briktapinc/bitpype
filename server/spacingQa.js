@@ -372,12 +372,7 @@ function measureGeometryInPage(floors) {
       if (candidate) {
         var cs = getComputedStyle(n);
         var r = n.getBoundingClientRect();
-        if (
-          r.width >= 120 &&
-          r.height >= 40 &&
-          !/inline/.test(cs.display) &&
-          cs.display !== 'none'
-        ) {
+        if (r.width >= 120 && r.height >= 40 && !/inline/.test(cs.display) && cs.display !== 'none') {
           return n;
         }
       }
@@ -506,7 +501,10 @@ function measureGeometryInPage(floors) {
         }
       }
       if (boxRect) {
-        var over = Math.max(boxRect.bottom - r.bottom < -2 ? r.bottom - boxRect.bottom : 0, boxRect.right - r.right < -2 ? r.right - boxRect.right : 0);
+        var over = Math.max(
+          boxRect.bottom - r.bottom < -2 ? r.bottom - boxRect.bottom : 0,
+          boxRect.right - r.right < -2 ? r.right - boxRect.right : 0
+        );
         if (over > 0) {
           var pk = 'p|' + describe(box);
           if (!seenSpill[pk]) {
@@ -606,19 +604,35 @@ function measureGeometryInPage(floors) {
       if (!boxLike(k) && !(k.textContent && k.textContent.trim())) continue;
       kids.push(k);
     }
-    for (var a = 0; a < kids.length; a++) {
-      for (var b = a + 1; b < kids.length; b++) {
-        var ra = kids[a].getBoundingClientRect();
-        var rb = kids[b].getBoundingClientRect();
+    // Rects are read once per kid (the pairwise loop re-read them per
+    // pair — O(n^2) layout reads) and the loop is band-limited by top
+    // edge: a pair can only overlap vertically when the later kid's
+    // top is above the earlier kid's bottom - 4. Same pairs, same
+    // verdicts, near-linear on stacked layouts.
+    var rects = kids.map(function (k) {
+      return k.getBoundingClientRect();
+    });
+    var order = kids
+      .map(function (k, idx) {
+        return idx;
+      })
+      .sort(function (x, y) {
+        return rects[x].top - rects[y].top;
+      });
+    for (var a = 0; a < order.length; a++) {
+      for (var b = a + 1; b < order.length; b++) {
+        var ra = rects[order[a]];
+        var rb = rects[order[b]];
+        if (rb.top >= ra.bottom - 4) break;
         var ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
         var oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
         if (ox > 4 && oy > 4) {
-          var ok2 = 'ov|' + describe(kids[a]) + '|' + describe(kids[b]);
+          var ok2 = 'ov|' + describe(kids[order[a]]) + '|' + describe(kids[order[b]]);
           if (!seenOv[ok2]) {
             seenOv[ok2] = 1;
             violations.push({
               kind: 'sibling-overlap',
-              selector: describe(kids[a]) + ' ~ ' + describe(kids[b]),
+              selector: describe(kids[order[a]]) + ' ~ ' + describe(kids[order[b]]),
               px: round1(Math.min(ox, oy)),
             });
           }
@@ -641,11 +655,17 @@ function measureGeometryInPage(floors) {
   });
   var seenTx = {};
   Object.keys(buckets).forEach(function (bk) {
-    var arr = buckets[bk];
+    // Band-limited by top edge (same pairs, same verdicts): a pair can
+    // only intersect vertically when the later leaf's top is above the
+    // earlier leaf's bottom - 2.
+    var arr = buckets[bk].slice().sort(function (x, y) {
+      return x.box.t - y.box.t;
+    });
     for (var i = 0; i < arr.length; i++) {
       for (var j = i + 1; j < arr.length; j++) {
         var A = arr[i];
         var B = arr[j];
+        if (B.box.t >= A.box.b - 2) break;
         if (A.el === B.el || A.el.contains(B.el) || B.el.contains(A.el)) continue;
         var ix = Math.min(A.box.r, B.box.r) - Math.max(A.box.l, B.box.l);
         var iy = Math.min(A.box.b, B.box.b) - Math.max(A.box.t, B.box.t);
@@ -673,6 +693,7 @@ const DEFAULT_WIDTHS = [390, 980, 1440];
 function puppeteerLaunchOpts() {
   const launchOpts = {
     headless: true,
+    protocolTimeout: 30000,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
   };
   const candidates = [
@@ -689,6 +710,70 @@ function puppeteerLaunchOpts() {
     }
   }
   return launchOpts; // puppeteer's own bundled-Chromium resolution
+}
+
+// Batch 185 (finisher hardening): the audits share ONE browser per
+// process instead of launching per call — a launch storm under load
+// made export audits stall for minutes (a wedged setContent hit the
+// 180s protocol ceiling and took whole suites down with it). Every
+// audit also runs under a hard deadline: on timeout the shared
+// browser is force-closed (its target may be wedged) and the audit
+// throws SPACING_AUDIT_TIMEOUT, which callers already record as a
+// skipped audit / skip-pass. An audit must never stall an export.
+let sharedAuditBrowser = null;
+let sharedAuditBrowserPromise = null;
+async function auditBrowser() {
+  if (sharedAuditBrowser && sharedAuditBrowser.connected) return sharedAuditBrowser;
+  if (!sharedAuditBrowserPromise) {
+    sharedAuditBrowserPromise = loadBrowser()
+      .then((b) => {
+        sharedAuditBrowser = b;
+        sharedAuditBrowserPromise = null;
+        b.on('disconnected', () => {
+          if (sharedAuditBrowser === b) sharedAuditBrowser = null;
+        });
+        return b;
+      })
+      .catch((e) => {
+        sharedAuditBrowserPromise = null;
+        throw e;
+      });
+  }
+  return sharedAuditBrowserPromise;
+}
+async function dropAuditBrowser() {
+  const b = sharedAuditBrowser;
+  sharedAuditBrowser = null;
+  sharedAuditBrowserPromise = null;
+  if (b) {
+    try {
+      await b.close();
+    } catch {
+      /* */
+    }
+  }
+}
+async function withAuditDeadline(work, budgetMs, label) {
+  let timer = null;
+  const inner = Promise.resolve().then(work);
+  inner.catch(() => {}); // an abandoned audit must not surface as unhandled
+  try {
+    return await Promise.race([
+      inner,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const e = new Error(`spacing audit (${label}) exceeded its ${budgetMs}ms budget`);
+          e.code = 'SPACING_AUDIT_TIMEOUT';
+          reject(e);
+        }, budgetMs);
+      }),
+    ]);
+  } catch (e) {
+    if (e && e.code === 'SPACING_AUDIT_TIMEOUT') await dropAuditBrowser();
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function loadBrowser() {
@@ -719,6 +804,10 @@ async function loadBrowser() {
  * cannot run at all — qaSite records the established skip-pass.
  */
 async function assessSpacing(pages, theme, opts = {}) {
+  const budget = Number(opts.budgetMs) > 0 ? Number(opts.budgetMs) : 60000;
+  return withAuditDeadline(() => assessSpacingInner(pages, theme, opts), budget, 'qa');
+}
+async function assessSpacingInner(pages, theme, opts = {}) {
   const floors = spacingTokens();
   if (!floors) {
     const e = new Error('spacing tokens missing from public/css/tokens.css');
@@ -740,10 +829,11 @@ async function assessSpacing(pages, theme, opts = {}) {
     sectionInset: floors.sectionInset,
     sectionInsetMobile: floors.sectionInsetMobile,
   };
-  const browser = await loadBrowser();
+  const browser = await auditBrowser();
   const violations = [];
+  let page = null;
   try {
-    const page = await browser.newPage();
+    page = await browser.newPage();
     // Batch 145 (external review F11): the spacing browser shares
     // the setContent pattern — guard its subresource requests too.
     await require('./browserGuard').guardBrowserPage(page);
@@ -766,10 +856,12 @@ async function assessSpacing(pages, theme, opts = {}) {
       }
     }
   } finally {
-    try {
-      await browser.close();
-    } catch {
-      /* */
+    if (page) {
+      try {
+        await page.close();
+      } catch {
+        /* */
+      }
     }
   }
   const byWidth = new Map();
@@ -806,6 +898,10 @@ async function assessSpacing(pages, theme, opts = {}) {
 const EXPORT_AUDIT_MAX_FILES = 12;
 
 async function assessExportedFiles(exported, opts = {}) {
+  const budget = Number(opts.budgetMs) > 0 ? Number(opts.budgetMs) : 60000;
+  return withAuditDeadline(() => assessExportedFilesInner(exported, opts), budget, 'export');
+}
+async function assessExportedFilesInner(exported, opts = {}) {
   const floors = spacingTokens();
   if (!floors) {
     const e = new Error('spacing tokens missing from public/css/tokens.css');
@@ -828,11 +924,12 @@ async function assessExportedFiles(exported, opts = {}) {
     sectionInset: floors.sectionInset,
     sectionInsetMobile: floors.sectionInsetMobile,
   };
-  const browser = await loadBrowser();
+  const browser = await auditBrowser();
   const violations = [];
   let audited = 0;
+  let page = null;
   try {
-    const page = await browser.newPage();
+    page = await browser.newPage();
     await require('./browserGuard').guardBrowserPage(page);
     for (const rel of files) {
       let html;
@@ -858,10 +955,12 @@ async function assessExportedFiles(exported, opts = {}) {
       }
     }
   } finally {
-    try {
-      await browser.close();
-    } catch {
-      /* */
+    if (page) {
+      try {
+        await page.close();
+      } catch {
+        /* */
+      }
     }
   }
   const byKind = {};

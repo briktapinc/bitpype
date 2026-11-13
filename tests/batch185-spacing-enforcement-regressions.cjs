@@ -563,6 +563,21 @@ async function part3() {
     n += 1;
   });
   const withDefect = await spacingQa.assessExportedFiles({ dir, files: ['index.html', 'defect.html'] });
+  await acheck('audits are deadline-bounded: a wedged page records SPACING_AUDIT_TIMEOUT, never stalls', async () => {
+    const isTimeout = (e) => e && e.code === 'SPACING_AUDIT_TIMEOUT';
+    await assert.rejects(
+      spacingQa.assessExportedFiles({ dir, files: ['index.html'] }, { budgetMs: 1 }),
+      isTimeout,
+      'export audit honours its budget'
+    );
+    await assert.rejects(
+      spacingQa.assessSpacing(goodPages(), {}, { renderPage: engine.renderPage, budgetMs: 1 }),
+      isTimeout,
+      'qa audit honours its budget'
+    );
+    n += 1;
+  });
+
   await acheck('export audit: the shipped defect file is measured and reported by kind', async () => {
     assert.equal(withDefect.pass, false);
     assert.equal(withDefect.filesAudited, 2);
