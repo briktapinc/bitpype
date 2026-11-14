@@ -737,6 +737,25 @@ function spacingGuardCss() {
        rule used 12px and vanishes with baseCss off; a negative
        authored margin then stacks items into each other). */
     'section[data-ws-section-type="faq"] details{margin-top:0;margin-bottom:var(--bp-space-card-gap)}',
+    /* Batch 187 — full-width bands (Ely, 2026-11-14: nav, footer and
+       gallery sections render true full width, edge to edge). The
+       inset rule above is correct when the section root IS the band
+       (native module sections paint their own background to their
+       own edges). The platform WRAPPER roots — div.ws-nav-chrome,
+       div.ws-footer-chrome, div.ws-html-block — are not bands: the
+       wrapper spans the viewport, but its guard padding caged the
+       authored band inside at the content box, so band backgrounds
+       stopped 28px (22px mobile) short of BOTH screen edges
+       (measured on website 53 at 390/980/1440, every page; the
+       gallery module embed added its own 1100px cap on top).
+       Wrappers carry no horizontal padding; the band inside owns
+       the inset — enforced by the Batch 186 measured chrome top-up
+       and the Batch 187 band pass in the guard script below, and
+       policed by spacingQa text-edge / card-text geometry.
+       Specificity (0,2,0) ties the general inset rule; this rule
+       ships later in the same block, so it wins on exactly these
+       three wrapper classes and nothing else. */
+    '[data-ws-section-type].ws-nav-chrome,[data-ws-section-type].ws-footer-chrome,[data-ws-section-type].ws-html-block{padding-left:0!important;padding-right:0!important}',
   ].join('\n');
 }
 
@@ -809,15 +828,34 @@ function spacingGuardScript() {
     'function nearestBox(el,root){for(var n=el;n&&n.nodeType===1;n=n.parentElement){var tag=n.tagName;if(tag==="TD"||tag==="TH"||tag==="TABLE")return null;var cand=tag!=="BUTTON"&&tag!=="A"&&tag!=="LI"&&(boxLike(n)||n.matches("details,.col-cell,.cta-band"));if(cand){var cs=getComputedStyle(n);var r=n.getBoundingClientRect();if(r.width>=120&&r.height>=40&&cs.display.indexOf("inline")<0&&cs.display!=="none")return n;}if((n.hasAttribute&&n.hasAttribute("data-ws-section-type"))||n===root)return null;}return null;}' +
     'function chromeRoots(){var roots=[];document.querySelectorAll("[data-ws-section-type]").forEach(function(el){var k=el.getAttribute("data-ws-section-type");if(k!=="nav"&&k!=="footer")return;if(el.getAttribute("data-bp-spacing")==="off")return;roots.push({el:el,kind:k});});document.querySelectorAll("body>header,body>footer").forEach(function(el){if(el.hasAttribute("data-ws-section-type")||el.getAttribute("data-bp-spacing")==="off")return;roots.push({el:el,kind:el.tagName==="HEADER"?"nav":"footer"});});return roots;}' +
     'function topUpBox(box,e,band){var cs=getComputedStyle(box);var br=box.getBoundingClientRect();var pl=br.left+(parseFloat(cs.borderLeftWidth)||0),pr=br.right-(parseFloat(cs.borderRightWidth)||0),pt=br.top+(parseFloat(cs.borderTopWidth)||0),pb=br.bottom-(parseFloat(cs.borderBottomWidth)||0);var fH=band?(window.innerWidth>700?SI:SIM):P;var dL=fH-(e.l-pl),dR=fH-(pr-e.r),dT=P-(e.t-pt),dB=P-(pb-e.b);if(dL>0)box.style.paddingLeft=((parseFloat(cs.paddingLeft)||0)+Math.ceil(dL))+"px";if(dR>0)box.style.paddingRight=((parseFloat(cs.paddingRight)||0)+Math.ceil(dR))+"px";if(dT>0)box.style.paddingTop=((parseFloat(cs.paddingTop)||0)+Math.ceil(dT))+"px";if(dB>0)box.style.paddingBottom=((parseFloat(cs.paddingBottom)||0)+Math.ceil(dB))+"px";}' +
-    'function chromeFloorPass(root){var boxes=new Map();var walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);var node;while((node=walker.nextNode())){if(!node.nodeValue||!/\\S/.test(node.nodeValue))continue;var p=node.parentElement;if(!p)continue;if(p.closest(\'details:not([open])\'))continue;if(p.closest(\'[data-bp-spacing="off"]\'))continue;var pcs=getComputedStyle(p);if(pcs.display==="none"||pcs.visibility==="hidden")continue;var box=nearestBox(p,root);if(!box)continue;var range=document.createRange();range.selectNodeContents(node);var rects=range.getClientRects();for(var i=0;i<rects.length;i++){var r=rects[i];if(!r.width||!r.height)continue;var e=boxes.get(box);if(!e){e={l:1e9,r:-1e9,t:1e9,b:-1e9};boxes.set(box,e);}if(r.left<e.l)e.l=r.left;if(r.right>e.r)e.r=r.right;if(r.top<e.t)e.t=r.top;if(r.bottom>e.b)e.b=r.bottom;}}boxes.forEach(function(e,box){topUpBox(box,e,box===root||box.parentElement===root);});}' +
+    // Batch 187: root fallback for the band pass — text with no band
+    // box inside an html block tops up the block root itself. The
+    // root sits under the guard CSS !important rules (the Batch 187
+    // wrapper-zero rule included), so these are set as inline
+    // !important, the only layer that can raise the root.
+    'function topUpRoot(el,e){var cs=getComputedStyle(el);var br=el.getBoundingClientRect();var pl=br.left+(parseFloat(cs.borderLeftWidth)||0),pr=br.right-(parseFloat(cs.borderRightWidth)||0),pt=br.top+(parseFloat(cs.borderTopWidth)||0),pb=br.bottom-(parseFloat(cs.borderBottomWidth)||0);var fH=window.innerWidth>700?SI:SIM;var dL=fH-(e.l-pl),dR=fH-(pr-e.r),dT=P-(e.t-pt),dB=P-(pb-e.b);if(dL>0)el.style.setProperty(\"padding-left\",((parseFloat(cs.paddingLeft)||0)+Math.ceil(dL))+\"px\",\"important\");if(dR>0)el.style.setProperty(\"padding-right\",((parseFloat(cs.paddingRight)||0)+Math.ceil(dR))+\"px\",\"important\");if(dT>0)el.style.setProperty(\"padding-top\",((parseFloat(cs.paddingTop)||0)+Math.ceil(dT))+\"px\",\"important\");if(dB>0)el.style.setProperty(\"padding-bottom\",((parseFloat(cs.paddingBottom)||0)+Math.ceil(dB))+\"px\",\"important\");}' +
+    'function chromeFloorPass(root,rootFallback){var boxes=new Map();var fb=null;var walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);var node;while((node=walker.nextNode())){if(!node.nodeValue||!/\\S/.test(node.nodeValue))continue;var p=node.parentElement;if(!p)continue;if(p.closest(\'details:not([open])\'))continue;if(p.closest(\'[data-bp-spacing="off"]\'))continue;if(p.closest(\'.bitpype-module-embed,[data-bitpype-module]\'))continue;var pcs=getComputedStyle(p);if(pcs.display==="none"||pcs.visibility==="hidden")continue;var box=nearestBox(p,root);if(!box&&!rootFallback)continue;var range=document.createRange();range.selectNodeContents(node);var rects=range.getClientRects();for(var i=0;i<rects.length;i++){var r=rects[i];if(!r.width||!r.height)continue;var e;if(box){e=boxes.get(box);if(!e){e={l:1e9,r:-1e9,t:1e9,b:-1e9};boxes.set(box,e);}}else{if(!fb)fb={l:1e9,r:-1e9,t:1e9,b:-1e9};e=fb;}if(r.left<e.l)e.l=r.left;if(r.right>e.r)e.r=r.right;if(r.top<e.t)e.t=r.top;if(r.bottom>e.b)e.b=r.bottom;}}boxes.forEach(function(e,box){topUpBox(box,e,box===root||box.parentElement===root);});if(fb)topUpRoot(root,fb);}' +
     'function stackLinks(root){var parents=new Set();root.querySelectorAll("a").forEach(function(a){if(a.parentElement)parents.add(a.parentElement);});parents.forEach(function(parent){var pcs=getComputedStyle(parent);if(pcs.display==="flex"||pcs.display==="grid"||pcs.display==="inline-flex"||pcs.display==="inline-grid")return;var kids=parent.childNodes,run=[];function flush(){if(run.length>=2){var vis=run.filter(function(a){var r=a.getBoundingClientRect();return r.width>0&&r.height>0&&/\\S/.test(a.textContent);});if(vis.length>=2&&vis.every(function(a){return getComputedStyle(a).display==="inline";})){vis.forEach(function(a){a.style.display="block";});for(var i=1;i<vis.length;i++){var prev=vis[i-1].getBoundingClientRect(),cur=vis[i].getBoundingClientRect();var gp=cur.top-prev.bottom;if(gp<LF){var mt=parseFloat(getComputedStyle(vis[i]).marginTop)||0;vis[i].style.marginTop=(mt+(LF-gp))+"px";}}}}run=[];}for(var i=0;i<kids.length;i++){var k=kids[i];if(k.nodeType===1&&k.tagName==="A")run.push(k);else if(k.nodeType===1&&k.tagName==="BR")continue;else if(k.nodeType===3&&!/\\S/.test(k.nodeValue))continue;else flush();}flush();});}' +
     'function chromePass(){chromeRoots().forEach(function(root){if(root.kind==="footer"||window.innerWidth<=700)stackLinks(root.el);chromeFloorPass(root.el);chromeFloorPass(root.el);});}' +
+    // Batch 187: the same measured floor for html-block bands. Since
+    // 187 the .ws-html-block wrapper carries no horizontal padding
+    // (its background cage is gone), so the authored band inside owns
+    // the inset: boxes are topped up exactly as in chrome (the band
+    // child of the root gets band semantics), and text with NO band
+    // box at all (bare text straight in the block) falls back to
+    // topping up the block root itself — the wrapper padding returns
+    // only where a block genuinely has no band to carry it. Module
+    // embeds inside a block are the module system surface and are
+    // skipped inside chromeFloorPass.
+    'function bandRoots(){var roots=[];document.querySelectorAll(\".ws-html-block\").forEach(function(el){if(el.getAttribute(\"data-bp-spacing\")===\"off\")return;roots.push(el);});return roots;}' +
+    'function bandPass(){bandRoots().forEach(function(root){chromeFloorPass(root,true);chromeFloorPass(root,true);});}' +
     'function run(){' +
     'document.querySelectorAll(".container,.nav-inner,.footer-grid").forEach(function(el){up(el,["paddingLeft","paddingRight"],C);});' +
     'document.querySelectorAll(".card,.review-card,.col-cell").forEach(function(el){up(el,["paddingTop","paddingRight","paddingBottom","paddingLeft"],P);});' +
     'document.querySelectorAll(".card,.review-card").forEach(function(el){unclip(el);});' +
     'document.querySelectorAll(".grid,.cards-grid,.gallery-grid,.footer-grid,.contact-grid,.cols").forEach(gap);' +
     'chromePass();' +
+    'bandPass();' +
     'wrapTables();' +
     '}' +
     'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",run);else run();' +

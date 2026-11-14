@@ -31,7 +31,12 @@
  *                 chrome outside the spacing system on every export
  *                 site, 288 of 459 section entries at 0px) — whose
  *                 computed horizontal padding sits below the section
- *                 inset floor for the viewport width.
+ *                 inset floor for the viewport width. Batch 187: the
+ *                 platform WRAPPER roots (ws-nav-chrome /
+ *                 ws-footer-chrome / ws-html-block) are exempt — by
+ *                 law they carry no padding so the band inside them
+ *                 reaches the screen edges; that band's own inset is
+ *                 what text-edge / card-text measure.
  * Browser unavailable -> throws err.code 'PUPPETEER_MISSING' (or the
  * launch error) so qaSite can record the established skip-pass, the
  * same contract as checkMobileOverflow.
@@ -133,6 +138,19 @@ function measureSpacingInPage(floors) {
   document.querySelectorAll('[data-ws-section-type]').forEach(function (sec) {
     if (!visible(sec)) return;
     if (sec.getAttribute('data-bp-spacing') === 'off') return;
+    // Batch 187: platform WRAPPER roots carry no horizontal padding
+    // by law — the band inside them owns the inset (the guard CSS
+    // zeroes the wrapper so band backgrounds reach the screen edges;
+    // the guard script's measured top-up enforces the band itself).
+    // A wrapper's own padding is not a spacing signal; band text is
+    // policed by the text-edge / card-text geometry below.
+    if (
+      sec.classList &&
+      (sec.classList.contains('ws-nav-chrome') ||
+        sec.classList.contains('ws-footer-chrome') ||
+        sec.classList.contains('ws-html-block'))
+    )
+      return;
     var cs = getComputedStyle(sec);
     var minPad = Math.min(parseFloat(cs.paddingLeft) || 0, parseFloat(cs.paddingRight) || 0);
     if (minPad < secFloor - EPS) {
@@ -401,6 +419,19 @@ function measureGeometryInPage(floors) {
   document.querySelectorAll('[data-ws-section-type]').forEach(function (sec) {
     if (!visible(sec)) return;
     if (sec.getAttribute('data-bp-spacing') === 'off') return;
+    // Batch 187: platform WRAPPER roots carry no horizontal padding
+    // by law — the band inside them owns the inset (the guard CSS
+    // zeroes the wrapper so band backgrounds reach the screen edges;
+    // the guard script's measured top-up enforces the band itself).
+    // A wrapper's own padding is not a spacing signal; band text is
+    // policed by the text-edge / card-text geometry below.
+    if (
+      sec.classList &&
+      (sec.classList.contains('ws-nav-chrome') ||
+        sec.classList.contains('ws-footer-chrome') ||
+        sec.classList.contains('ws-html-block'))
+    )
+      return;
     var cs = getComputedStyle(sec);
     var minPad = Math.min(parseFloat(cs.paddingLeft) || 0, parseFloat(cs.paddingRight) || 0);
     if (minPad < secFloor - EPS) {

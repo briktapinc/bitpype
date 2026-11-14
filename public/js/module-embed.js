@@ -54,6 +54,15 @@
       'max-width:1100px;margin-left:auto;margin-right:auto;box-sizing:border-box;',
       'padding-left:clamp(1.1rem,3.5vw,2rem);padding-right:clamp(1.1rem,3.5vw,2rem);',
       '}',
+      // Batch 187 — full-width bands (Ely, 2026-11-14): a GALLERY embed
+      // in a designed page is a visual band, not a reading column: it
+      // spans the full viewport width, edge to edge, and its image
+      // grid may touch the screen edges. mountOne stamps
+      // .bp-mod-fullwidth on gallery mounts only; every other module
+      // type keeps the 1100px content column above.
+      '.bitpype-module-embed.bitpype-module-inpage.bp-mod-fullwidth{',
+      'max-width:none;margin-left:0;margin-right:0;padding-left:0;padding-right:0;',
+      '}',
       '.bitpype-module-embed.bitpype-module-standalone{',
       'max-width:920px;margin:0 auto;padding:22px 16px 32px;',
       '}',
@@ -5880,6 +5889,8 @@
     ensureStyles();
     polishHost(el);
     el.classList.add('bitpype-module-inpage');
+    // Batch 187: gallery bands render full width (see ensureStyles).
+    if ((el.getAttribute('data-bitpype-module-type') || '') === 'gallery') el.classList.add('bp-mod-fullwidth');
     if (document.body && document.body.children.length <= 2 && el.parentElement === document.body) {
       el.classList.add('bitpype-module-standalone');
     }
