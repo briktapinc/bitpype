@@ -401,7 +401,7 @@ const MODEL_BASE = { theme: THEME_BASE, pages: fixturePages() };
     const digest = crypto.createHash('sha256').update(html).digest('hex');
     assert.equal(
       digest,
-      'ddb9d83ccc83270f68d32cd36043b8d9cf5f0f88aa95b543466d7b9d6793511a',
+      'be062038f339facd5bd8c7c57be644c96d40b17bdabd2b7e3a30d0055ab22807',
       'fixture render is byte-identical to the Batch 186 tree output (re-pinned at the Batch 186 finisher: the spacing guard script grew by design — the Batch 186 chrome floor — and a pairwise render diff shows the guard script line is the only changed byte range; the fingerprint code still changes no render path)'
     );
     n++;

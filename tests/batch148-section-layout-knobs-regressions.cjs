@@ -117,16 +117,16 @@ const goldenPages = () => [
   },
 ];
 const GOLDEN = {
-  renderPageHome: '6f08369777802ed9080d52015a3ef9471a815b5d3758ab21948b2d4fc010224d',
-  renderPageAbout: '871df65d1830ea46bc11216c2f1b1f43c4b0a29fffe0fd18d6c5cba27be9a1eb',
-  renderPageHomePreview: '98ff086f7b895fb974621d01a4a397ad64a71f71930dcc7d3b63355fa38aad62',
-  renderSiteStacked: '9bf0945ba0a9ec20f0e267f3618c41d34c65a016e7b5860789039019132b13f2',
+  renderPageHome: 'e67a84617f5a4cf092ea14a7432ab2625e8e0193927252133f1b7dc6447da8bf',
+  renderPageAbout: 'f49201f875699571fe17108f1dd78a590418f09f523b683cabc4e64da487ec8a',
+  renderPageHomePreview: 'daeeb74123a5d80a3513b67ece4cb774d672774b3c01ac4a3b11b82de38cf997',
+  renderSiteStacked: '25b71e3b3aa025f48ad319b904c6549462e59e5ffdc83840d9ead2d09c5a60a9',
   /* Export goldens: writeStaticPages output captured from the same
    * pristine pre-148 engine (the exporter adds its own transforms —
    * detail meta, legal links — on top of renderPage, so export pins
    * are pinned against export output, not render output). */
-  exportIndex: 'b8f02772578c74b04fbd6298ec9b7905689ab8dc84aac3d9fffe11dbd175e675',
-  exportAbout: 'b63bddc2979e4566d7a2cdbf37c52bfa791814fa0cf982909858b53adf31a042',
+  exportIndex: '416c08dbb2062ef6556f15398a7f4328f554be79cad02e267d8618a8f82eb634',
+  exportAbout: '66fe9784aa7cd25013eac41e7ad051116692b9ad6eb8f33860fa5f5f8b84a77a',
 };
 
 const LEAD_A = 148001;

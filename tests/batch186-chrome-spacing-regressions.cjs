@@ -202,9 +202,10 @@ function part1() {
     assert.ok(src.includes('function chromeFloorPass('), 'measured band top-up');
     assert.ok(src.includes('function stackLinks('), 'footer link stacking');
     assert.ok(src.includes('body>header,body>footer'), 'partials chrome is in scope');
+    assert.ok(src.includes('querySelectorAll("[data-ws-section-type]")'), 'typed chrome bands in scope');
     assert.ok(
-      src.includes('[data-ws-section-type="nav"],[data-ws-section-type="footer"]'),
-      'typed chrome bands in scope'
+      !src.includes('[data-ws-section-type="nav"]'),
+      'guard script never carries the stamped nav attribute literal (batch141 reads whole documents)'
     );
     n += 1;
   });
