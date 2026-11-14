@@ -2284,7 +2284,7 @@ function toolDefs({ clientScoped = false } = {}) {
     {
       name: 'design.deliver',
       description:
-        'Deliver design payload. Change requests attach change_verification + change_summary (website.qa + nav/form). Downloads remote images locally. Auto-provisions BitPype forms. Strips hand-rolled <form>. MODULES+FORMS STYLING via theme.customCss.',
+        'Deliver design payload. Change requests attach change_verification + change_summary (website.qa + nav/form). Downloads remote images locally. Auto-provisions BitPype forms. Strips hand-rolled <form>. MODULES+FORMS STYLING via theme.customCss. ANTI-REPEAT (Batch 190): a first website delivery whose hero variant repeats the most recent other-lead build (or whose variant mix exactly repeats a recent one) is refused with ANTI_REPEAT unless the payload carries layout_need — a genuine client/brand need for that layout (not speed/convenience); a justified repeat is recorded on the job brief.',
       inputSchema: {
         type: 'object',
         properties: { id: { type: 'integer' }, payload: { type: 'object' }, claims: { type: 'array' } },

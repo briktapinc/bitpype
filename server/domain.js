@@ -983,8 +983,59 @@ async function designDeliver(workspaceId, id, payload, claims, extra = {}) {
         console.warn('[domain] sanitizeAgentPages on deliver:', e.message || e);
       }
     }
+    // Batch 190 — anti-repeat rule (spec §4a, over variant selections;
+    // see server/variantAntiRepeat.js). FIRST delivery of a website
+    // job only: re-deliveries and improvement jobs are never blocked.
+    let antiRepeatRecord = null;
+    if (payload && Array.isArray(payload.pages)) {
+      try {
+        const jobRow = db.prepare('SELECT lead_id, type, website_id FROM design_jobs WHERE id = ?').get(Number(id));
+        if (jobRow && jobRow.type === 'website' && !jobRow.website_id) {
+          const antiRepeat = require('./variantAntiRepeat');
+          const verdict = antiRepeat.antiRepeatCheck(db, {
+            leadId: jobRow.lead_id,
+            pages: deliverPayload.pages,
+            layoutNeed: antiRepeat.layoutNeedOf(payload),
+          });
+          if (verdict.repeat && !verdict.justified) {
+            throw siteErr('ANTI_REPEAT', antiRepeat.antiRepeatMessage(verdict.repeat));
+          }
+          if (verdict.repeat && verdict.justified) antiRepeatRecord = verdict;
+        }
+      } catch (e) {
+        if (e && e.code === 'ANTI_REPEAT') throw e;
+        console.warn('[domain] anti-repeat check:', e.message || e);
+      }
+    }
     const row = await designJobs().deliverJob(db, id, deliverPayload, claims, extra);
     if (row && pageWarnings.length) row.warnings = pageWarnings;
+    if (row && antiRepeatRecord) {
+      // Record the judged override on the job brief (spec §4a: the
+      // override is recorded) and warn on the delivery result.
+      try {
+        const jr = db.prepare('SELECT brief FROM design_jobs WHERE id = ?').get(Number(id));
+        let brief = {};
+        try {
+          brief = jr && jr.brief ? JSON.parse(jr.brief) : {};
+        } catch {
+          brief = {};
+        }
+        brief.layout_need = antiRepeatRecord.layoutNeed;
+        brief.anti_repeat = {
+          repeatedWithSiteId: antiRepeatRecord.repeat.siteId,
+          heroVariant: antiRepeatRecord.repeat.heroVariant,
+          mixEqual: !!antiRepeatRecord.repeat.mixEqual,
+          justified: true,
+        };
+        db.prepare('UPDATE design_jobs SET brief = ? WHERE id = ?').run(JSON.stringify(brief), Number(id));
+      } catch (e) {
+        console.warn('[domain] anti-repeat record:', e.message || e);
+      }
+      row.warnings = [
+        ...(Array.isArray(row.warnings) ? row.warnings : []),
+        `Anti-repeat: this build repeats website ${antiRepeatRecord.repeat.siteId} (${antiRepeatRecord.repeat.kind === 'hero' ? `hero variant "${antiRepeatRecord.repeat.heroVariant}"` : 'variant mix'}) — justified by the recorded layout_need.`,
+      ];
+    }
     if (row && row.website_id) {
       try {
         const site = websiteEngine().getWebsite(db, row.website_id);
