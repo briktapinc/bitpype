@@ -356,16 +356,34 @@ async function part2() {
         gaps.every((v) => v.px === 0),
         `touching cards report 0px: ${JSON.stringify(gaps)}`
       );
-      const bleed = cQa.violations.filter((v) => v.kind === 'text-edge' && v.width === 1440);
+      // Batch 187 amendment: the bleed paragraph's TEXT is rescued by
+      // the new html-block root fallback (its glyphs return to the
+      // section inset, so text-edge no longer fires), but the
+      // negative-margin box itself still bleeds past the viewport
+      // and the audit catches it as document overflow. The fixture's
+      // role is unchanged: patterns the floor cannot fully reach
+      // FAIL with measurements.
+      const bleed = cQa.violations.filter((v) => v.kind === 'overflow' && v.width === 1440);
       assert.ok(bleed.length >= 1, `bleed caught at 1440: ${JSON.stringify(cQa.violations).slice(0, 300)}`);
-      assert.ok(bleed.every((v) => v.px < 16));
+      assert.ok(bleed.every((v) => v.px > 0));
+      assert.ok(
+        !cQa.violations.some((v) => v.kind === 'text-edge'),
+        'bleed text should be rescued by the Batch 187 root fallback'
+      );
       n += 1;
     });
 
-    // (e) finisher: chrome bands are inside the floor — authored
-    // single-attribute !important zero rules on nav/footer (the exact
-    // pattern the audit found on Victoria) are beaten by the guard,
-    // and QA's section-pad measurement covers the chrome bands.
+    // (e) finisher: chrome bands are inside the floor. Batch 187
+    // amendment: the nav/footer WRAPPERS carry no CSS padding by
+    // law now (the band inside owns the inset, so bands paint edge
+    // to edge); the authored !important zeros below agree with the
+    // new law instead of fighting the old one. The guarantee this
+    // fixture pins survives by the measured route instead: the
+    // .fx-chrome bands here are not boxes (no background/border),
+    // so their text is boxless chrome text, and the guard script's
+    // root fallback tops the WRAPPER up inline to 28/22 — the same
+    // computed values the old guard-CSS rule produced. Boxed bands
+    // are topped up per-band by the Batch 186 pass (its own suite).
     const ePages = [
       {
         slug: 'index',
@@ -390,17 +408,20 @@ async function part2() {
       probe(browser, eHtml, w, () => {
         const nav = document.querySelector('[data-ws-section-type="nav"]');
         const foot = document.querySelector('[data-ws-section-type="footer"]');
+        const bands = Array.from(document.querySelectorAll('.fx-chrome')).map((el) => getComputedStyle(el).paddingLeft);
         return {
           navPad: nav && getComputedStyle(nav).paddingLeft,
           footPad: foot && getComputedStyle(foot).paddingLeft,
+          bands,
         };
       });
     const eWide = await eProbe(1440);
     await acheck(
-      '(e) chrome floor at 1440: nav + footer wrappers at 28px despite authored !important zeros',
+      '(e) chrome floor at 1440: nav + footer wrappers at 28px (measured root top-up since Batch 187)',
       async () => {
         assert.equal(eWide.navPad, '28px', `nav pad ${eWide.navPad}`);
         assert.equal(eWide.footPad, '28px', `footer pad ${eWide.footPad}`);
+        assert.deepEqual(eWide.bands, ['0px', '0px'], `non-box bands stay unpadded: ${JSON.stringify(eWide.bands)}`);
         n += 1;
       }
     );
@@ -411,7 +432,7 @@ async function part2() {
       n += 1;
     });
     const eQa = await spacingQa.assessSpacing(ePages, eTheme, { renderPage: engine.renderPage });
-    await acheck('(e) QA passes the chrome fixture (section-pad covers chrome, guard rescues it)', async () => {
+    await acheck('(e) QA passes the chrome fixture (band text inset enforced by the measured top-up)', async () => {
       assert.equal(eQa.pass, true, JSON.stringify(eQa.violations).slice(0, 300));
       n += 1;
     });

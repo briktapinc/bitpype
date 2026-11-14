@@ -472,8 +472,17 @@ async function part2() {
   const bandFxPages = fixturePage(`<div class="fx-band"><h2>Mobile Service</h2><p>${LONG_COPY}</p></div>`);
   const bandFxTheme = { customCss: '.fx-band{background:#2b2b2e;color:#fff;padding:0}' };
   const bandFxLegacy = await legacy(bandFxPages, bandFxTheme);
-  await acheck('(f) legacy 135 measurement is BLIND to text on a freestyle band edge', async () => {
-    assert.equal(bandFxLegacy.pass, true, JSON.stringify(bandFxLegacy.violations).slice(0, 300));
+  await acheck('(f) legacy 135 measurement CATCHES the freestyle band post-187 (the band sits at the screen edge now)', async () => {
+    // Batch 187 amendment: pre-187 the html wrapper's guard padding
+    // held this band 28px off the edge, which is what made the
+    // legacy checker "blind" to its missing inset. Full-width bands
+    // removed the cage, so the legacy text-edge check sees the
+    // violation directly. The geometry check below is unchanged.
+    assert.equal(bandFxLegacy.pass, false);
+    assert.ok(
+      bandFxLegacy.violations.some((v) => v.kind === 'text-edge'),
+      JSON.stringify(bandFxLegacy.violations).slice(0, 300)
+    );
     n += 1;
   });
   const bandFxGeo = await geo(bandFxPages, bandFxTheme);
