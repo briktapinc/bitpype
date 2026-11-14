@@ -19,7 +19,11 @@
  *     pins RE-PINNED at the Batch 185 finisher: Batch 185 deliberately
  *     extends the always-on spacing guard CSS — display:grid guarantee,
  *     mobile single-column collapse, faq margin floor — so every render
- *     changed bytes; the knob-free guarantee itself is unchanged: with
+ *     changed bytes; RE-PINNED AGAIN at the Batch 186 finisher: Batch
+ *     186 extends the always-on spacing guard SCRIPT with the chrome
+ *     floor (measured band top-up + footer link stacking) — a pairwise
+ *     diff of pre/post renders shows the guard script line is the ONLY
+ *     changed byte range; the knob-free guarantee itself is unchanged: with
  *     no knobs set the output is exactly the current platform renderer's,
  *     and set-then-unset still returns to the pinned hash). (golden
  *     pins below; the footer carries the calendar year, so the pins
@@ -113,16 +117,16 @@ const goldenPages = () => [
   },
 ];
 const GOLDEN = {
-  renderPageHome: '38d987084a59f410597fdc415e786a5c73f12905face549a20c9997d4456c89e',
-  renderPageAbout: 'ab435b8e13e968ab5688470814bb21b704ded82a7125f92caba59a47b1b8315f',
-  renderPageHomePreview: '05bd77c517a7ce941e74800887215218900ae207f74b86ea36809da3270bfb6d',
-  renderSiteStacked: 'b84c191ccf929559d1d25b67bca65abffe267dd835fac623cb7aa1a4c1893d80',
+  renderPageHome: '6f08369777802ed9080d52015a3ef9471a815b5d3758ab21948b2d4fc010224d',
+  renderPageAbout: '871df65d1830ea46bc11216c2f1b1f43c4b0a29fffe0fd18d6c5cba27be9a1eb',
+  renderPageHomePreview: '98ff086f7b895fb974621d01a4a397ad64a71f71930dcc7d3b63355fa38aad62',
+  renderSiteStacked: '9bf0945ba0a9ec20f0e267f3618c41d34c65a016e7b5860789039019132b13f2',
   /* Export goldens: writeStaticPages output captured from the same
    * pristine pre-148 engine (the exporter adds its own transforms —
    * detail meta, legal links — on top of renderPage, so export pins
    * are pinned against export output, not render output). */
-  exportIndex: '24077329e504bf5ce9426d8386ffd977e68f65ca1ae0e05d1e801eb9fe7af431',
-  exportAbout: '9ba791b07cb92cbbd0c8122f60346300fe015262150e552d7f6c26a4a5872766',
+  exportIndex: 'b8f02772578c74b04fbd6298ec9b7905689ab8dc84aac3d9fffe11dbd175e675',
+  exportAbout: 'b63bddc2979e4566d7a2cdbf37c52bfa791814fa0cf982909858b53adf31a042',
 };
 
 const LEAD_A = 148001;
