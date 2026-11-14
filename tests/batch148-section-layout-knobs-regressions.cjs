@@ -23,7 +23,12 @@
  *     186 extends the always-on spacing guard SCRIPT with the chrome
  *     floor (measured band top-up + footer link stacking) — a pairwise
  *     diff of pre/post renders shows the guard script line is the ONLY
- *     changed byte range; the knob-free guarantee itself is unchanged: with
+ *     changed byte range; RE-PINNED AGAIN at the Batch 187 finisher:
+ *     Batch 187 extends the guard CSS with the wrapper-zero rule and
+ *     the guard script with the band pass — a pairwise render diff,
+ *     stripping the guard script block and the zero rule, shows the
+ *     renders byte-identical outside those two guard byte ranges;
+ *     the knob-free guarantee itself is unchanged: with
  *     no knobs set the output is exactly the current platform renderer's,
  *     and set-then-unset still returns to the pinned hash). (golden
  *     pins below; the footer carries the calendar year, so the pins
@@ -40,8 +45,9 @@
  *   Part 7 — canvas: layout renders keep a mobile-hidden section
  *     visible (override rule ships), bridge badges/dims (source pins).
  *   Part 8 — spacing QA in real Chromium: a correctly built
- *     full-width band passes at 390/980/1440; bleed text inside a
- *     full-width band still fails text-edge; a mobile-hidden section
+ *     full-width band passes at 390/980/1440; a bleeding box inside
+ *     a full-width band still fails QA (overflow since Batch 187 —
+ *     its text is root-fallback-rescued); a mobile-hidden section
  *     is not measured on mobile but is measured on desktop.
  */
 const assert = require('node:assert/strict');
@@ -117,16 +123,16 @@ const goldenPages = () => [
   },
 ];
 const GOLDEN = {
-  renderPageHome: 'e67a84617f5a4cf092ea14a7432ab2625e8e0193927252133f1b7dc6447da8bf',
-  renderPageAbout: 'f49201f875699571fe17108f1dd78a590418f09f523b683cabc4e64da487ec8a',
-  renderPageHomePreview: 'daeeb74123a5d80a3513b67ece4cb774d672774b3c01ac4a3b11b82de38cf997',
-  renderSiteStacked: '25b71e3b3aa025f48ad319b904c6549462e59e5ffdc83840d9ead2d09c5a60a9',
+  renderPageHome: '52eed0196de5611fe113066ba57d8472672a83272df5c9c1495fe5c2ab86b3f7',
+  renderPageAbout: 'f2e12d8c99483bc5c5d21c305a32ce1f0e45e68fac445f92e8b4d632150138c1',
+  renderPageHomePreview: '8f845c0685ad67a4caa8cf44cc30ca7b5c0bb2ef35952d139929d80ccebcdac4',
+  renderSiteStacked: 'c909f657f5d2b1bb90bafe0663c4d56b237a3e8e9473bf0550e09c44ffd49c65',
   /* Export goldens: writeStaticPages output captured from the same
    * pristine pre-148 engine (the exporter adds its own transforms —
    * detail meta, legal links — on top of renderPage, so export pins
    * are pinned against export output, not render output). */
-  exportIndex: '416c08dbb2062ef6556f15398a7f4328f554be79cad02e267d8618a8f82eb634',
-  exportAbout: '66fe9784aa7cd25013eac41e7ad051116692b9ad6eb8f33860fa5f5f8b84a77a',
+  exportIndex: '7f4d179752d04994c16e38432f4c1d32fa6183278cf814c3b0f86ff31b43318e',
+  exportAbout: '7dd3910a0473ac1393fd22d6ff9ab13220dee74c54ec5a9bee36760e691bd8c5',
 };
 
 const LEAD_A = 148001;
@@ -611,7 +617,12 @@ let WS_ID;
       );
       n++;
 
-      // (b) Bleed text inside a full-width band still fails text-edge.
+      // (b) Bleed text inside a full-width band still fails QA.
+      // Batch 187 amendment: the bleed paragraph's TEXT is rescued
+      // by the html-block root fallback (glyphs return to the inset,
+      // so text-edge no longer fires — the same shift as the
+      // Batch 135 (a-caught) fixture), but the negative-margin box
+      // still bleeds past the viewport and fails as overflow.
       const bleedPages = mkPages([
         { type: 'nav', content: { brand: 'QA Plants' } },
         {
@@ -629,8 +640,12 @@ let WS_ID;
       const bleedQa = await assess(bleedPages, bleedTheme);
       assert.equal(bleedQa.pass, false, 'bleed inside a full-width band still fails QA');
       assert.ok(
-        bleedQa.violations.some((v) => v.kind === 'text-edge' && v.width === 1440),
-        `text-edge caught at 1440 inside the full-width band: ${JSON.stringify(bleedQa.violations).slice(0, 300)}`
+        bleedQa.violations.some((v) => v.kind === 'overflow' && v.width === 1440),
+        `bleed caught at 1440 inside the full-width band: ${JSON.stringify(bleedQa.violations).slice(0, 300)}`
+      );
+      assert.ok(
+        !bleedQa.violations.some((v) => v.kind === 'text-edge'),
+        'bleed text rescued by the Batch 187 root fallback'
       );
       n += 2;
 
@@ -646,12 +661,15 @@ let WS_ID;
         { type: 'footer', content: {} },
       ]);
       const ghostQa = await assess(ghostPages, bleedTheme);
+      // Batch 187: the bleed signal is overflow, not text-edge
+      // (see (b) above); the measured-on-desktop / skipped-on-mobile
+      // intent is unchanged.
       assert.ok(
-        ghostQa.violations.some((v) => v.kind === 'text-edge' && v.width === 1440),
+        ghostQa.violations.some((v) => v.kind === 'overflow' && v.width === 1440),
         'hidden section still measured at desktop width'
       );
       assert.ok(
-        !ghostQa.violations.some((v) => v.kind === 'text-edge' && v.width === 390),
+        !ghostQa.violations.some((v) => v.kind === 'overflow' && v.width === 390),
         'hidden section not measured at mobile width (display:none)'
       );
       n += 2;
