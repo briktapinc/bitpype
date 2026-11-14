@@ -184,6 +184,7 @@ const checks = [
   'batch186-chrome-spacing-regressions',
   'batch187-fullwidth-bands-regressions',
   'batch188-section-variants-foundation-regressions',
+  'batch189-section-variant-wave-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

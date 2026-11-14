@@ -122,6 +122,12 @@ const goldenPages = () => [
     ],
   },
 ];
+/* Batch 189 re-pin (2026-11-14): the render/export goldens moved
+ * again because the variant CSS block grew (the first-wave variant
+ * rules joined the primitives). Same pairwise proof: stripping
+ * exactly "\n" + variantCss() from the 189 renders restores the
+ * pre-188 hashes byte-for-byte (home 52eed019…, about f2e12d8c…,
+ * preview 8f845c06…, stacked c909f657…, exports 7f4d1797…/7dd3910a…). */
 /* Batch 188 re-pin (2026-11-14): the four render goldens below moved
  * because siteCss now appends the section-variant CSS block (spec §4;
  * scoped [data-variant] rules + §5 primitives — inert on this
@@ -130,16 +136,16 @@ const goldenPages = () => [
  * restores the pre-188 hashes byte-for-byte (home 52eed019…, about
  * f2e12d8c…, preview 8f845c06…, stacked c909f657…). */
 const GOLDEN = {
-  renderPageHome: 'e7178dd08969d7f73ca26c7cefe816608ebc24ac033cb5d90d14c03a7e9c51d9',
-  renderPageAbout: '9859d97beb46ee89bd9907175c2509f0442b3ab27abbdec28864804015ba2503',
-  renderPageHomePreview: '638c2c88ed723878b9f6cd2fceae0dbfc0d7a4b8dd48bbaf7a98d23f2657067b',
-  renderSiteStacked: 'a600092d53379243ff2f60b4190baef2204b4c98f41116f2e377c18df4f1593b',
+  renderPageHome: '256ba0a166d25f1b94734ed4b1327b6f871713857576b43cf3c7ddfd28f62a91',
+  renderPageAbout: '112d8dddbc91549147b36807808fcc9201f33eea600e4a1b611ba5f806b9fa6e',
+  renderPageHomePreview: '338e4602da8a3c0bbecd3c75688b8656d30a2650589b2b923189251e81999889',
+  renderSiteStacked: '19ad2c7396e7542629902236f686765edeb9cc8d685a371ce88180420ade3279',
   /* Export goldens: writeStaticPages output captured from the same
    * pristine pre-148 engine (the exporter adds its own transforms —
    * detail meta, legal links — on top of renderPage, so export pins
    * are pinned against export output, not render output). */
-  exportIndex: '3cce0c362e20faca9111d7fe97d3a8bdb094acc260684ee4275a48d09b69f5e6',
-  exportAbout: 'be020a297bfc7bbed58d6e174765bcdf2315401d7950fd95074c39f515374ae2',
+  exportIndex: 'd2062e8fecf4d8e02d6efd2eba4c8f23db4542115df0fa2b2db4b2c054c23ebe',
+  exportAbout: 'f8afd59d88c135148ed1c6fdd62378b2b69336724fa6aa0eee52c1b1e651884d',
 };
 
 const LEAD_A = 148001;

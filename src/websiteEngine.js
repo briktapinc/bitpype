@@ -1634,9 +1634,356 @@ const RENDERERS = {
  * (content, theme, edit, section). Dispatch happens in sectionToHtml:
  * a stored, valid, non-standard section.variant with a renderer here
  * wins; anything else (absent, "standard", unknown id) renders the
- * standard path above, byte-identically. Batch 188 registers NONE —
- * foundation only; the Batch 189 wave fills this map. */
-const VARIANT_RENDERERS = {};
+ * standard path above, byte-identically. Batch 188 registered NONE —
+ * foundation only; the Batch 189 wave fills this map.
+ *
+ * Batch 189 — FIRST VARIANT WAVE (spec Batch B; Ely widened the pool
+ * 2026-11-14: mine the Assistant theme library AND online component
+ * research; each registry entry records its source). Every renderer
+ * below consumes the SAME content fields through the SAME escaped
+ * helpers as its standard renderer (editSpan / esc / safeHref /
+ * photoFigure / wrapListItem) — the data/presentation split of spec
+ * Principle 1: switching variant changes geometry only, never the
+ * data output (the batch189 suite proves text/href/img invariance
+ * per type). Geometry lives in the scoped CSS blocks in
+ * src/sectionVariants.js (VARIANT_CSS_BLOCKS). */
+
+/** The hero rating badge, byte-identical to cHero's. */
+function heroRatingBadge(c) {
+  return c.rating && c.review_count
+    ? `<div class="rating-badge">★ ${esc(String(c.rating))} · ${esc(String(c.review_count))} customer reviews</div>`
+    : '';
+}
+
+/** The hero CTA pair, byte-identical to cHero's. */
+function heroCtas(c, edit) {
+  return `<div>${c.cta_text ? `<a class="btn" href="${esc(safeHref(c.cta_href || '#contact'))}">${editSpan(edit, 'cta_text', c.cta_text)}</a>` : ''}
+    ${c.cta_secondary_text ? `<a class="btn btn-outline" href="${esc(safeHref(c.cta_secondary_href || '#services'))}">${editSpan(edit, 'cta_secondary_text', c.cta_secondary_text)}</a>` : ''}</div>`;
+}
+
+/** Hero media for variants: side photo first, else the background image. */
+function heroVariantMedia(c, figureClass, divClass) {
+  const photo = photoFigure(c.image, figureClass);
+  if (photo) return photo;
+  const bg = contentBackgroundImageUrl(c);
+  if (bg) return `<div class="${divClass}" style="background-image:url('${esc(bg)}')" role="img" aria-label=""></div>`;
+  return '';
+}
+
+function vHeroSplit(c = {}, t, edit) {
+  const media = heroVariantMedia(c, 'hero-photo', 'bpv-hero-media');
+  return `<header class="hero"><div class="container bpv-hero-split"><div class="bpv-hero-copy">
+    ${heroRatingBadge(c)}
+    <h1>${editSpan(edit, 'headline', c.headline || 'Welcome')}</h1>
+    ${c.subheadline ? `<p>${editSpan(edit, 'subheadline', c.subheadline)}</p>` : ''}
+    ${heroCtas(c, edit)}
+  </div>${media ? `<div class="bpv-hero-side">${media}</div>` : ''}</div></header>`;
+}
+
+function vHeroEditorial(c = {}, t, edit) {
+  const media = heroVariantMedia(c, 'photo', 'bpv-ed-media-div');
+  return `<header class="hero"><div class="container">
+    ${heroRatingBadge(c)}
+    <h1 class="bpv-ed-title">${editSpan(edit, 'headline', c.headline || 'Welcome')}</h1>
+    <div class="bpv-ed-sub">${c.subheadline ? `<p>${editSpan(edit, 'subheadline', c.subheadline)}</p>` : ''}${heroCtas(c, edit)}</div>
+    ${media ? `<div class="bpv-ed-media">${media}</div>` : ''}
+  </div></header>`;
+}
+
+function vHeroShowcase(c = {}, t, edit) {
+  const media = heroVariantMedia(c, 'photo', 'bpv-sc-media-div');
+  return `<header class="hero"><div class="container">
+    <div class="bpv-sc-stack">${heroRatingBadge(c)}
+    <h1>${editSpan(edit, 'headline', c.headline || 'Welcome')}</h1>
+    ${c.subheadline ? `<p>${editSpan(edit, 'subheadline', c.subheadline)}</p>` : ''}
+    ${heroCtas(c, edit)}</div>
+    ${media ? `<div class="bpv-sc-media">${media}</div>` : ''}
+  </div></header>`;
+}
+
+function vHeroCorner(c = {}, t, edit) {
+  const bg = contentBackgroundImageUrl(c) || (c.image && safeImageUrl(c.image.url)) || '';
+  const style = bg ? ` style="background-image:url('${esc(bg)}')"` : '';
+  return `<header class="hero"${style}><div class="container bpv-corner-wrap"><div class="bpv-corner-panel">
+    ${heroRatingBadge(c)}
+    <h1>${editSpan(edit, 'headline', c.headline || 'Welcome')}</h1>
+    ${c.subheadline ? `<p>${editSpan(edit, 'subheadline', c.subheadline)}</p>` : ''}
+    ${heroCtas(c, edit)}
+  </div></div></header>`;
+}
+
+/** text_image pieces shared by the standard renderer and its variants. */
+function textImageParts(c, edit) {
+  const heading = c.heading || c.title || '';
+  const body = c.body || c.text || '';
+  const photo = photoFigure(c.image, 'photo');
+  const button = c.button && typeof c.button === 'object' ? c.button : null;
+  const imgCol =
+    photo || '<div class="ph" style="background:linear-gradient(135deg,#e5e7eb,#d1d5db)" role="img" aria-label="Image"></div>';
+  const buttonHtml =
+    button && button.text
+      ? `<p><a class="btn btn-primary" href="${esc(safeHref(button.href))}">${editSpan(edit, 'button.text', button.text)}</a></p>`
+      : '';
+  return { heading, body, photo, imgCol, buttonHtml };
+}
+
+function vTextImageStacked(c = {}, t, edit) {
+  const p = textImageParts(c, edit);
+  if (!p.heading && !p.body && !p.photo && !edit) return '';
+  return `<section class="block text-image ws-design-module" data-ws-design-module="1"><div class="container">
+    ${p.heading ? `<h2>${editSpan(edit, 'heading', p.heading)}</h2>` : ''}
+    <div class="bpv-ti-media">${p.imgCol}</div>
+    ${p.body ? `<div class="bpv-ti-cols"><p class="lede">${editSpan(edit, 'body', p.body)}</p></div>` : ''}
+    ${p.buttonHtml}
+  </div></section>`;
+}
+
+function vTextImageOverlap(c = {}, t, edit) {
+  const p = textImageParts(c, edit);
+  if (!p.heading && !p.body && !p.photo && !edit) return '';
+  return `<section class="block text-image ws-design-module" data-ws-design-module="1"><div class="container">
+    <div class="bpv-ti-overlap"><div class="bpv-ti-media">${p.imgCol}</div><div class="bpv-ti-card">
+    ${p.heading ? `<h2>${editSpan(edit, 'heading', p.heading)}</h2>` : ''}
+    ${p.body ? `<p class="lede">${editSpan(edit, 'body', p.body)}</p>` : ''}
+    ${p.buttonHtml}
+    </div></div>
+  </div></section>`;
+}
+
+function vTextImageSticky(c = {}, t, edit) {
+  const p = textImageParts(c, edit);
+  if (!p.heading && !p.body && !p.photo && !edit) return '';
+  return `<section class="block text-image ws-design-module" data-ws-design-module="1"><div class="container">
+    <div class="bpv-ti-sticky"><div class="bpv-ti-media">${p.imgCol}</div><div class="bpv-ti-copy">
+    ${p.heading ? `<h2>${editSpan(edit, 'heading', p.heading)}</h2>` : ''}
+    ${p.body ? `<p class="lede">${editSpan(edit, 'body', p.body)}</p>` : ''}
+    ${p.buttonHtml}
+    </div></div>
+  </div></section>`;
+}
+
+/** One review card, byte-identical inner markup to cReviews'. */
+function reviewCard(r, i, edit) {
+  const stars = Math.max(1, Math.min(5, Number(r.stars) || 5));
+  return `<div class="card review-card"><div class="stars">${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}</div>
+        <p>“${editSpan(edit, `reviews.${i}.text`, r.text || '')}”</p><div class="who">— ${editSpan(edit, `reviews.${i}.name`, r.name || 'Customer')}</div></div>`;
+}
+
+function reviewHead(c, edit) {
+  return `${c.title ? `<h2>${editSpan(edit, 'title', c.title || 'What Customers Say')}</h2>` : `<h2>${editSpan(edit, 'title', 'What Customers Say')}</h2>`}
+    ${c.subtitle ? `<p class="lede">${editSpan(edit, 'subtitle', c.subtitle)}</p>` : ''}`;
+}
+
+function vReviewsFeatured(c = {}, t, edit) {
+  const reviews = Array.isArray(c.reviews) ? c.reviews : [];
+  if (!reviews.length && !edit) return '';
+  const first = reviews[0];
+  const fStars = first ? Math.max(1, Math.min(5, Number(first.stars) || 5)) : 5;
+  const feature = first
+    ? wrapListItem(
+        edit,
+        'reviews',
+        0,
+        `<div class="bpv-rev-feature"><div class="stars">${'★'.repeat(fStars)}${'☆'.repeat(5 - fStars)}</div>
+        <p class="bpv-rev-quote">“${editSpan(edit, 'reviews.0.text', first.text || '')}”</p><div class="who">— ${editSpan(edit, 'reviews.0.name', first.name || 'Customer')}</div></div>`
+      )
+    : '';
+  const rest = reviews
+    .slice(1)
+    .map((r, j) => wrapListItem(edit, 'reviews', j + 1, reviewCard(r, j + 1, edit)))
+    .join('');
+  return `<section class="block"><div class="container">
+    ${reviewHead(c, edit)}
+    <div data-ws-list="reviews">${feature}${rest ? `<div class="grid">${rest}</div>` : ''}</div>${listAddButton(edit, 'reviews', '+ Add review')}</div></section>`;
+}
+
+function vReviewsMasonry(c = {}, t, edit) {
+  const reviews = Array.isArray(c.reviews) ? c.reviews : [];
+  if (!reviews.length && !edit) return '';
+  return `<section class="block"><div class="container">
+    ${reviewHead(c, edit)}
+    <div class="bpv-rev-masonry" data-ws-list="reviews">${reviews.map((r, i) => wrapListItem(edit, 'reviews', i, reviewCard(r, i, edit))).join('')}</div>${listAddButton(edit, 'reviews', '+ Add review')}</div></section>`;
+}
+
+function vReviewsSummary(c = {}, t, edit) {
+  const reviews = Array.isArray(c.reviews) ? c.reviews : [];
+  if (!reviews.length && !edit) return '';
+  const total = reviews.reduce((sum, r) => sum + Math.max(1, Math.min(5, Number(r.stars) || 5)), 0);
+  const avg = reviews.length ? total / reviews.length : 0;
+  const avgStars = Math.max(1, Math.min(5, Math.round(avg)));
+  const rows = reviews
+    .map((r, i) => {
+      const stars = Math.max(1, Math.min(5, Number(r.stars) || 5));
+      return wrapListItem(
+        edit,
+        'reviews',
+        i,
+        `<div class="bpv-rev-row"><div class="stars">${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}</div>
+        <p>“${editSpan(edit, `reviews.${i}.text`, r.text || '')}”</p><div class="who">— ${editSpan(edit, `reviews.${i}.name`, r.name || 'Customer')}</div></div>`
+      );
+    })
+    .join('');
+  return `<section class="block"><div class="container">
+    <div class="bpv-rev-split"><div class="bpv-rev-rail">
+    ${reviewHead(c, edit)}
+    <div class="bpv-rev-avg">${esc(avg.toFixed(1))}</div>
+    <div class="stars">${'★'.repeat(avgStars)}${'☆'.repeat(5 - avgStars)}</div>
+    <p>${reviews.length} customer review${reviews.length === 1 ? '' : 's'}</p>
+    </div><div data-ws-list="reviews">${rows}</div></div>${listAddButton(edit, 'reviews', '+ Add review')}</div></section>`;
+}
+
+function vReviewsSpotlight(c = {}, t, edit) {
+  const reviews = Array.isArray(c.reviews) ? c.reviews : [];
+  if (!reviews.length && !edit) return '';
+  return `<section class="block"><div class="container">
+    ${reviewHead(c, edit)}
+    <div class="bpv-rev-spot" data-ws-list="reviews">${reviews
+      .map((r, i) => {
+        const stars = Math.max(1, Math.min(5, Number(r.stars) || 5));
+        return wrapListItem(
+          edit,
+          'reviews',
+          i,
+          `<div class="bpv-rev-item"><div class="stars">${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}</div>
+        <p class="bpv-rev-quote">“${editSpan(edit, `reviews.${i}.text`, r.text || '')}”</p><div class="bpv-rev-who">${editSpan(edit, `reviews.${i}.name`, r.name || 'Customer')}</div></div>`
+        );
+      })
+      .join('')}</div>${listAddButton(edit, 'reviews', '+ Add review')}</div></section>`;
+}
+
+/** One gallery cell, byte-identical to cGallery's per-image markup. */
+function galleryCell(im, i, edit) {
+  const fig = photoFigure(im, 'photo');
+  if (fig) return fig;
+  return `<div class="ph" style="background:${GALLERY_GRADIENTS[i % GALLERY_GRADIENTS.length]}" role="img" aria-label="${esc(im.caption || 'Gallery image')}">${editSpan(edit, `images.${i}.caption`, im.caption || 'Your photo here')}</div>`;
+}
+
+function gallerySlots(c) {
+  const images = (Array.isArray(c.images) ? c.images : []).slice(0, 6);
+  return images.length
+    ? images
+    : [{ caption: 'Your photo here' }, { caption: 'Your photo here' }, { caption: 'Your photo here' }];
+}
+
+function galleryHead(c, edit) {
+  return `${c.title ? `<h2>${editSpan(edit, 'title', c.title)}</h2>` : `<h2>${editSpan(edit, 'title', 'Gallery')}</h2>`}
+    ${c.subtitle ? `<p class="lede">${editSpan(edit, 'subtitle', c.subtitle)}</p>` : ''}`;
+}
+
+function vGalleryBento(c = {}, t, edit) {
+  const slots = gallerySlots(c);
+  return `<section class="block"><div class="container">
+    ${galleryHead(c, edit)}
+    <div class="bpv-gal-bento">${slots.map((im, i) => (i === 0 ? `<div class="bpv-cell-first">${galleryCell(im, i, edit)}</div>` : galleryCell(im, i, edit))).join('')}</div></div></section>`;
+}
+
+function vGalleryMasonry(c = {}, t, edit) {
+  const slots = gallerySlots(c);
+  return `<section class="block"><div class="container">
+    ${galleryHead(c, edit)}
+    <div class="bpv-gal-masonry">${slots.map((im, i) => galleryCell(im, i, edit)).join('')}</div></div></section>`;
+}
+
+function vGalleryStrip(c = {}, t, edit) {
+  const slots = gallerySlots(c);
+  return `<section class="block"><div class="container">
+    ${galleryHead(c, edit)}
+    <div class="bpv-gal-strip">${slots.map((im, i) => `<div class="bpv-strip-cell">${galleryCell(im, i, edit)}</div>`).join('')}</div></div></section>`;
+}
+
+function vGalleryRail(c = {}, t, edit) {
+  const slots = gallerySlots(c);
+  return `<section class="block"><div class="container">
+    ${galleryHead(c, edit)}
+    <div class="bpv-gal-rail"><div class="bpv-rail-main">${galleryCell(slots[0], 0, edit)}</div><div class="bpv-rail-side">${slots.slice(1).map((im, j) => galleryCell(im, j + 1, edit)).join('')}</div></div></div></section>`;
+}
+
+function vFaqCards(c = {}, t, edit) {
+  const items = Array.isArray(c.items) ? c.items : [];
+  if (!items.length && !edit) return '';
+  return `<section class="block faq"><div class="container">
+    ${c.title ? `<h2>${editSpan(edit, 'title', c.title)}</h2>` : '<h2>Frequently Asked Questions</h2>'}
+    <div class="bpv-faq-cards" data-ws-list="items">${items
+      .map((it, i) =>
+        wrapListItem(
+          edit,
+          'items',
+          i,
+          `<div class="bpv-faq-card"><h3>${editSpan(edit, `items.${i}.q`, it.q || '')}</h3><p>${editSpan(edit, `items.${i}.a`, it.a || '')}</p></div>`
+        )
+      )
+      .join('')}</div>${listAddButton(edit, 'items', '+ Add question')}
+  </div></section>`;
+}
+
+function vFaqSplit(c = {}, t, edit) {
+  const items = Array.isArray(c.items) ? c.items : [];
+  if (!items.length && !edit) return '';
+  return `<section class="block faq"><div class="container">
+    <div class="bpv-faq-split"><div class="bpv-faq-head">${c.title ? `<h2>${editSpan(edit, 'title', c.title)}</h2>` : '<h2>Frequently Asked Questions</h2>'}</div>
+    <div data-ws-list="items">${items
+      .map((it, i) =>
+        wrapListItem(
+          edit,
+          'items',
+          i,
+          `<details><summary>${editSpan(edit, `items.${i}.q`, it.q || '')}</summary><p>${editSpan(edit, `items.${i}.a`, it.a || '')}</p></details>`
+        )
+      )
+      .join('')}</div></div>${listAddButton(edit, 'items', '+ Add question')}
+  </div></section>`;
+}
+
+function vFaqEditorial(c = {}, t, edit) {
+  const items = Array.isArray(c.items) ? c.items : [];
+  if (!items.length && !edit) return '';
+  return `<section class="block faq"><div class="container">
+    ${c.title ? `<h2>${editSpan(edit, 'title', c.title)}</h2>` : '<h2>Frequently Asked Questions</h2>'}
+    <div data-ws-list="items">${items
+      .map((it, i) =>
+        wrapListItem(
+          edit,
+          'items',
+          i,
+          `<div class="bpv-faq-row"><h3>${editSpan(edit, `items.${i}.q`, it.q || '')}</h3><p>${editSpan(edit, `items.${i}.a`, it.a || '')}</p></div>`
+        )
+      )
+      .join('')}</div>${listAddButton(edit, 'items', '+ Add question')}
+  </div></section>`;
+}
+
+function vCtaRow(c = {}, t, edit) {
+  return `<section class="block"><div class="container"><div class="cta-band bpv-cta-row">
+    <div class="bpv-cta-copy"><h2>${editSpan(edit, 'title', c.title || 'Get in touch today')}</h2>
+    ${c.text ? `<p>${editSpan(edit, 'text', c.text)}</p>` : ''}</div>
+    ${c.button_text ? `<div class="bpv-cta-action"><a class="btn" href="${esc(safeHref(c.button_href || '#contact'))}">${editSpan(edit, 'button_text', c.button_text)}</a></div>` : ''}
+  </div></div></section>`;
+}
+
+function vCtaPlain(c = {}, t, edit) {
+  return `<section class="block"><div class="container"><div class="bpv-cta-plain">
+    <h2>${editSpan(edit, 'title', c.title || 'Get in touch today')}</h2>
+    ${c.text ? `<p>${editSpan(edit, 'text', c.text)}</p>` : ''}
+    ${c.button_text ? `<a class="btn" href="${esc(safeHref(c.button_href || '#contact'))}">${editSpan(edit, 'button_text', c.button_text)}</a>` : ''}
+  </div></div></section>`;
+}
+
+function vCtaRecap(c = {}, t, edit) {
+  return `<section class="block"><div class="container"><div class="cta-band bpv-cta-recap">
+    <h2>${editSpan(edit, 'title', c.title || 'Get in touch today')}</h2>
+    <div>${c.text ? `<p>${editSpan(edit, 'text', c.text)}</p>` : ''}
+    ${c.button_text ? `<a class="btn" href="${esc(safeHref(c.button_href || '#contact'))}">${editSpan(edit, 'button_text', c.button_text)}</a>` : ''}</div>
+  </div></div></section>`;
+}
+
+const VARIANT_RENDERERS = {
+  hero: { split: vHeroSplit, editorial: vHeroEditorial, showcase: vHeroShowcase, corner: vHeroCorner },
+  text_image: { stacked: vTextImageStacked, overlap: vTextImageOverlap, sticky: vTextImageSticky },
+  reviews: { featured: vReviewsFeatured, masonry: vReviewsMasonry, summary: vReviewsSummary, spotlight: vReviewsSpotlight },
+  gallery: { bento: vGalleryBento, masonry: vGalleryMasonry, strip: vGalleryStrip, rail: vGalleryRail },
+  faq: { cards: vFaqCards, split: vFaqSplit, editorial: vFaqEditorial },
+  cta: { row: vCtaRow, plain: vCtaPlain, recap: vCtaRecap },
+};
 
 const PREVIEW_EDIT_STYLE = `<style data-ws-edit-style="1">
 html.ws-editing [data-edit]{

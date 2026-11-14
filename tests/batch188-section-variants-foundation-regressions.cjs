@@ -306,10 +306,12 @@ function group(name, n) {
     structure.setSectionVariant(s1, null);
     assert.ok(!('variant' in s1), 'setting null stores nothing');
     n += 3;
-    // 188 registers no non-standard variants: any other id is refused,
-    // with the valid ids named (spec §3 error contract).
+    // An unregistered id is refused, with the valid ids named
+    // (spec §3 error contract). (188 registered none; Batch 189 made
+    // 'split' a real hero variant, so the refused id here is a
+    // genuinely unknown one.)
     assert.throws(
-      () => structure.setSectionVariant(sec(), 'split'),
+      () => structure.setSectionVariant(sec(), 'bogus-id'),
       (e) => e.code === 'UNKNOWN_VARIANT' && /Valid variants: standard/.test(e.message)
     );
     n++;

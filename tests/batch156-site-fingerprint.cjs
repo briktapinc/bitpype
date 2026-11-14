@@ -401,8 +401,8 @@ const MODEL_BASE = { theme: THEME_BASE, pages: fixturePages() };
     const digest = crypto.createHash('sha256').update(html).digest('hex');
     assert.equal(
       digest,
-      '01147bc50a5652c164438d8eb6a9eb9a370b737826c27b069c935e03e301f0ae',
-      'fixture render is byte-identical to the Batch 188 tree output outside the appended variant CSS block (re-pinned at the Batch 188 finisher: siteCss appends the section-variant CSS block — scoped [data-variant] rules + §5 primitives, inert on this variant-free fixture; pairwise proof: stripping exactly "\n" + variantCss() from the 188 render restores the Batch 187 pin 7d12c147… byte-for-byte; earlier history: re-pinned at the Batch 187 finisher for the full-width guard growth, proven the same way)'
+      '793977f200e4af1041e18d7f00ea0f24c87b075c5c5267b2bd1e988145ecca68',
+      'fixture render is byte-identical to the Batch 189 tree output outside the appended variant CSS block (re-pinned at the Batch 189 finisher: the block grew with the first-wave variant rules — still scoped [data-variant] rules, inert on this variant-free fixture; pairwise proof: stripping exactly "\n" + variantCss() from the 189 render restores the Batch 187 pin 7d12c147… byte-for-byte; earlier history: re-pinned at the Batch 188 finisher when the block was introduced, and at the Batch 187 finisher for the full-width guard growth, proven the same way)'
     );
     n++;
     group('Part 4 render invariance', n);
