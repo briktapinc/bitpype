@@ -181,6 +181,7 @@ const checks = [
   'batch183-leads-explorer-regressions',
   'batch184-claim-live-domain-regressions',
   'batch185-spacing-enforcement-regressions',
+  'batch186-chrome-spacing-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');

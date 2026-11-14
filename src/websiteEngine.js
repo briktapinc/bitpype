@@ -775,7 +775,7 @@ function spacingGuardScript() {
   if (!t) return '';
   const body =
     '(function(){try{' +
-    `var C=${t.containerInset},P=${t.cardPad},G=${t.cardGap};` +
+    `var C=${t.containerInset},P=${t.cardPad},G=${t.cardGap},SI=${t.sectionInset},SIM=${t.sectionInsetMobile},LF=8;` +
     'function up(el,props,f){var cs=getComputedStyle(el);for(var i=0;i<props.length;i++){var v=parseFloat(cs[props[i]]);if(isNaN(v))v=0;if(v<f)el.style[props[i]]=f+"px";}}' +
     'function gap(el){var cs=getComputedStyle(el);if(cs.display!=="grid")return;["columnGap","rowGap"].forEach(function(p){var v=parseFloat(cs[p]);if(isNaN(v))v=0;if(v<G)el.style[p]=G+"px";});}' +
     'function wrapTables(){document.querySelectorAll("table").forEach(function(tbl){if(tbl.closest(".bp-table-scroll"))return;var p=tbl.parentElement;if(!p)return;var w=document.createElement("div");w.className="bp-table-scroll";p.insertBefore(w,tbl);w.appendChild(tbl);});}' +
@@ -788,11 +788,36 @@ function spacingGuardScript() {
     // the inline style — that residue is what the geometry QA fails
     // loudly with measurements.
     'function unclip(el){var p=el.parentElement;if(p){var pd=getComputedStyle(p).display;if(/grid|flex/.test(pd))return;}if(el.scrollHeight>el.clientHeight+1)el.style.height="auto";}' +
+    // Batch 186: chrome floor — nav/header/footer bands. Batch 185's
+    // floor covered module surfaces, but authored chrome shipped the
+    // same two defects twice (1HP, then Chefmom, Ely's one-pass test):
+    // the header inset sat on an inner bar while the BAND itself
+    // carried none, and footer link groups were inline anchors
+    // separated by <br> that wrapped into each other in the tablet
+    // column. Both are fixed here by MEASURED top-up, never blind
+    // addition: every text glyph inside a chrome band must clear its
+    // component box (the same box spacingQa measures) by the card
+    // floor on all sides, and the band root itself must clear the
+    // section-inset law (28 desktop / 22 mobile) horizontally — the
+    // inset ends up ON the band, per Ely's standing rule. A band
+    // that already meets the law gets no inline style at all.
+    // Footer (and mobile nav) inline anchor runs are stacked as
+    // block lists with at least an 8px rhythm, so they cannot wrap
+    // into each other at any width; a flex/grid parent (the desktop
+    // header row) is never stacked.
+    'function boxLike(el){var cs=getComputedStyle(el);var bg=cs.backgroundColor;var hasBg=!!bg&&bg!=="transparent"&&!/rgba\\(\\s*0,\\s*0,\\s*0,\\s*0\\s*\\)/.test(bg);var bw=Math.max(parseFloat(cs.borderTopWidth)||0,parseFloat(cs.borderRightWidth)||0,parseFloat(cs.borderBottomWidth)||0,parseFloat(cs.borderLeftWidth)||0);return hasBg||(bw>0&&cs.borderStyle!=="none"&&cs.borderStyle!=="hidden")||el.classList.contains("card")||el.classList.contains("review-card");}' +
+    'function nearestBox(el,root){for(var n=el;n&&n.nodeType===1;n=n.parentElement){var tag=n.tagName;if(tag==="TD"||tag==="TH"||tag==="TABLE")return null;var cand=tag!=="BUTTON"&&tag!=="A"&&tag!=="LI"&&(boxLike(n)||n.matches("details,.col-cell,.cta-band"));if(cand){var cs=getComputedStyle(n);var r=n.getBoundingClientRect();if(r.width>=120&&r.height>=40&&cs.display.indexOf("inline")<0&&cs.display!=="none")return n;}if((n.hasAttribute&&n.hasAttribute("data-ws-section-type"))||n===root)return null;}return null;}' +
+    'function chromeRoots(){var roots=[];document.querySelectorAll(\'[data-ws-section-type="nav"],[data-ws-section-type="footer"]\').forEach(function(el){if(el.getAttribute("data-bp-spacing")==="off")return;roots.push({el:el,kind:el.getAttribute("data-ws-section-type")});});document.querySelectorAll("body>header,body>footer").forEach(function(el){if(el.hasAttribute("data-ws-section-type")||el.getAttribute("data-bp-spacing")==="off")return;roots.push({el:el,kind:el.tagName==="HEADER"?"nav":"footer"});});return roots;}' +
+    'function topUpBox(box,e,band){var cs=getComputedStyle(box);var br=box.getBoundingClientRect();var pl=br.left+(parseFloat(cs.borderLeftWidth)||0),pr=br.right-(parseFloat(cs.borderRightWidth)||0),pt=br.top+(parseFloat(cs.borderTopWidth)||0),pb=br.bottom-(parseFloat(cs.borderBottomWidth)||0);var fH=band?(window.innerWidth>700?SI:SIM):P;var dL=fH-(e.l-pl),dR=fH-(pr-e.r),dT=P-(e.t-pt),dB=P-(pb-e.b);if(dL>0)box.style.paddingLeft=((parseFloat(cs.paddingLeft)||0)+Math.ceil(dL))+"px";if(dR>0)box.style.paddingRight=((parseFloat(cs.paddingRight)||0)+Math.ceil(dR))+"px";if(dT>0)box.style.paddingTop=((parseFloat(cs.paddingTop)||0)+Math.ceil(dT))+"px";if(dB>0)box.style.paddingBottom=((parseFloat(cs.paddingBottom)||0)+Math.ceil(dB))+"px";}' +
+    'function chromeFloorPass(root){var boxes=new Map();var walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);var node;while((node=walker.nextNode())){if(!node.nodeValue||!/\\S/.test(node.nodeValue))continue;var p=node.parentElement;if(!p)continue;if(p.closest(\'details:not([open])\'))continue;if(p.closest(\'[data-bp-spacing="off"]\'))continue;var pcs=getComputedStyle(p);if(pcs.display==="none"||pcs.visibility==="hidden")continue;var box=nearestBox(p,root);if(!box)continue;var range=document.createRange();range.selectNodeContents(node);var rects=range.getClientRects();for(var i=0;i<rects.length;i++){var r=rects[i];if(!r.width||!r.height)continue;var e=boxes.get(box);if(!e){e={l:1e9,r:-1e9,t:1e9,b:-1e9};boxes.set(box,e);}if(r.left<e.l)e.l=r.left;if(r.right>e.r)e.r=r.right;if(r.top<e.t)e.t=r.top;if(r.bottom>e.b)e.b=r.bottom;}}boxes.forEach(function(e,box){topUpBox(box,e,box===root||box.parentElement===root);});}' +
+    'function stackLinks(root){var parents=new Set();root.querySelectorAll("a").forEach(function(a){if(a.parentElement)parents.add(a.parentElement);});parents.forEach(function(parent){var pcs=getComputedStyle(parent);if(pcs.display==="flex"||pcs.display==="grid"||pcs.display==="inline-flex"||pcs.display==="inline-grid")return;var kids=parent.childNodes,run=[];function flush(){if(run.length>=2){var vis=run.filter(function(a){var r=a.getBoundingClientRect();return r.width>0&&r.height>0&&/\\S/.test(a.textContent);});if(vis.length>=2&&vis.every(function(a){return getComputedStyle(a).display==="inline";})){vis.forEach(function(a){a.style.display="block";});for(var i=1;i<vis.length;i++){var prev=vis[i-1].getBoundingClientRect(),cur=vis[i].getBoundingClientRect();var gp=cur.top-prev.bottom;if(gp<LF){var mt=parseFloat(getComputedStyle(vis[i]).marginTop)||0;vis[i].style.marginTop=(mt+(LF-gp))+"px";}}}}run=[];}for(var i=0;i<kids.length;i++){var k=kids[i];if(k.nodeType===1&&k.tagName==="A")run.push(k);else if(k.nodeType===1&&k.tagName==="BR")continue;else if(k.nodeType===3&&!/\\S/.test(k.nodeValue))continue;else flush();}flush();});}' +
+    'function chromePass(){chromeRoots().forEach(function(root){if(root.kind==="footer"||window.innerWidth<=700)stackLinks(root.el);chromeFloorPass(root.el);chromeFloorPass(root.el);});}' +
     'function run(){' +
     'document.querySelectorAll(".container,.nav-inner,.footer-grid").forEach(function(el){up(el,["paddingLeft","paddingRight"],C);});' +
     'document.querySelectorAll(".card,.review-card,.col-cell").forEach(function(el){up(el,["paddingTop","paddingRight","paddingBottom","paddingLeft"],P);});' +
     'document.querySelectorAll(".card,.review-card").forEach(function(el){unclip(el);});' +
     'document.querySelectorAll(".grid,.cards-grid,.gallery-grid,.footer-grid,.contact-grid,.cols").forEach(gap);' +
+    'chromePass();' +
     'wrapTables();' +
     '}' +
     'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",run);else run();' +
