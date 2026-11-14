@@ -1938,6 +1938,9 @@ function getClientLayoutEditor(workspaceId, leadId, slug) {
       descriptors: hasSections ? target.sections.map((s, i) => structure.describeEditorSection(s, i, resolve)) : [],
       tokens,
       fences: structure.LAYOUT_DUPLICATE_FENCE,
+      // Batch 188: the section-variant registry (spec §4) — the
+      // picker's single source, same data the design agent reads.
+      variants: require('../src/sectionVariants').registrySummary(),
       palette: {
         content: structure.LAYOUT_CONTENT_TYPES,
         modules: paletteModules,
@@ -2138,6 +2141,14 @@ function applyClientLayoutSave(workspaceId, leadId, body = {}) {
     );
     if (knobProblems.length) {
       throw Object.assign(new Error(knobProblems[0].message), { code: knobProblems[0].code });
+    }
+
+    // Batch 188: design variants get the same re-check — an unknown
+    // registry id or a variant on page chrome is refused at save,
+    // never silently kept (spec §3).
+    const variantProblems = structure.validateSectionVariants(sections);
+    if (variantProblems.length) {
+      throw Object.assign(new Error(variantProblems[0].message), { code: variantProblems[0].code });
     }
 
     const pages = JSON.parse(JSON.stringify(site.pages));

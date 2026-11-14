@@ -401,8 +401,8 @@ const MODEL_BASE = { theme: THEME_BASE, pages: fixturePages() };
     const digest = crypto.createHash('sha256').update(html).digest('hex');
     assert.equal(
       digest,
-      '7d12c14759d75981becdfe22453fa9119ca6c91945aeb6f3174107707759f4ce',
-      'fixture render is byte-identical to the Batch 187 tree output (re-pinned at the Batch 187 finisher: the spacing guard CSS + script grew by design — the Batch 187 full-width bands (wrapper-zero rule + band pass) — and a pairwise render diff, stripping the guard script block and the zero rule, shows the renders byte-identical outside those two guard byte ranges; the fingerprint code still changes no render path)'
+      '01147bc50a5652c164438d8eb6a9eb9a370b737826c27b069c935e03e301f0ae',
+      'fixture render is byte-identical to the Batch 188 tree output outside the appended variant CSS block (re-pinned at the Batch 188 finisher: siteCss appends the section-variant CSS block — scoped [data-variant] rules + §5 primitives, inert on this variant-free fixture; pairwise proof: stripping exactly "\n" + variantCss() from the 188 render restores the Batch 187 pin 7d12c147… byte-for-byte; earlier history: re-pinned at the Batch 187 finisher for the full-width guard growth, proven the same way)'
     );
     n++;
     group('Part 4 render invariance', n);

@@ -1616,6 +1616,105 @@ function validateEditorSections(sections) {
   return problems;
 }
 
+/* ------------------------------------------------------------------ */
+/* Batch 188 — section design variants (spec §3/§4). The field lives   */
+/* ON THE SECTION object alongside the Batch 148 knobs:                */
+/*   variant — a registry id from src/sectionVariants.js; the only     */
+/*     stored values are non-default ids. ABSENT (or 'standard')       */
+/*     means today's composition. The setter DELETES the field at the  */
+/*     default, so a variant-free page stores nothing new and renders  */
+/*     byte-identically to the pre-188 renderer BY CONSTRUCTION.       */
+/*   Chrome (nav/footer) never carries a variant in v1 (spec D5);      */
+/*   functional flow sections (forms, module mounts) register only     */
+/*   'standard', so the registry itself fences them.                   */
+/* ------------------------------------------------------------------ */
+
+const sectionVariants = require('./sectionVariants');
+
+function getSectionVariant(section) {
+  return sectionVariants.variantOf(section);
+}
+
+/**
+ * Variant op: a non-standard registry id stores the field; 'standard',
+ * '' or null clears it. Unknown ids are refused with a named error
+ * listing the valid ids for the type (spec §3).
+ */
+function setSectionVariant(section, id) {
+  if (!section || typeof section !== 'object') {
+    throw layoutKnobError('INVALID_SECTION', 'setSectionVariant needs a section object.');
+  }
+  const type = String(section.type || '');
+  if (LAYOUT_CHROME_TYPES.has(type)) {
+    throw layoutKnobError(
+      'CHROME_VARIANT',
+      `The ${type} is page chrome — chrome has no design variants in v1.`
+    );
+  }
+  const m = id == null ? '' : String(id).trim();
+  if (m === '' || m === sectionVariants.STANDARD) {
+    delete section.variant;
+    return section;
+  }
+  if (!sectionVariants.isValidVariant(type, m)) {
+    throw layoutKnobError(
+      'UNKNOWN_VARIANT',
+      `Unknown variant "${m}" for section type "${type}". Valid variants: ${sectionVariants
+        .idsFor(type)
+        .join(', ') || '(none — this type has no variants)'}.`
+    );
+  }
+  section.variant = m;
+  return section;
+}
+
+/**
+ * Save-path validation for section variants (same discipline as the
+ * knob re-check): returns { code, message } problems — empty when
+ * clean. An unknown id is NEVER silently kept (spec §3).
+ */
+function validateSectionVariants(sections) {
+  const problems = [];
+  if (!Array.isArray(sections)) return problems;
+  sections.forEach((section, index) => {
+    if (!section || typeof section !== 'object') return;
+    if (!('variant' in section)) return;
+    const where = `section ${index + 1} (${section.type || 'custom'})`;
+    const type = String(section.type || '');
+    const id = section.variant;
+    if (typeof id !== 'string' || !id.trim()) {
+      problems.push({
+        code: 'UNKNOWN_VARIANT',
+        message: `${where}: variant must be a registry id string or absent (standard).`,
+      });
+      return;
+    }
+    if (LAYOUT_CHROME_TYPES.has(type)) {
+      problems.push({
+        code: 'CHROME_VARIANT',
+        message: `${where}: page chrome cannot carry a design variant in v1.`,
+      });
+      return;
+    }
+    if (id.trim() === sectionVariants.STANDARD) {
+      problems.push({
+        code: 'UNKNOWN_VARIANT',
+        message: `${where}: "standard" is the default and is never stored — omit variant for the standard layout.`,
+      });
+      return;
+    }
+    if (!sectionVariants.isValidVariant(type, id.trim())) {
+      problems.push({
+        code: 'UNKNOWN_VARIANT',
+        message: `${where}: unknown variant "${id}" for type "${type}". Valid variants: ${
+          sectionVariants.idsFor(type).join(', ') || '(none — this type has no variants)'
+        }.`,
+      });
+    }
+  });
+  return problems;
+}
+
 /**
  * Per-section editor descriptor for one page. `resolveModuleType` is a
  * caller-supplied (section) => moduleType|'' (the portal layer resolves
@@ -1774,6 +1873,17 @@ function describeEditorSection(section, index, resolveModuleType) {
     canHideMobile: !chrome,
     width: getSectionWidth(section),
     hideOnMobile: getSectionHideOnMobile(section),
+    // Batch 188: design variant (spec §4/§6) — chrome never carries
+    // one in v1; options come from the registry with agent metadata.
+    canVariant: !chrome,
+    variant: getSectionVariant(section),
+    variantOptions: sectionVariants.entriesFor(t).map((e) => ({
+      id: e.id,
+      label: e.label,
+      description: e.description,
+      bestFor: e.bestFor,
+      avoidWhen: e.avoidWhen,
+    })),
   };
 }
 
@@ -1830,6 +1940,9 @@ module.exports = {
   getSectionHideOnMobile,
   setSectionHideOnMobile,
   validateSectionLayoutKnobs,
+  getSectionVariant,
+  setSectionVariant,
+  validateSectionVariants,
   LAYOUT_NON_BAND_MODULE_TYPES,
   isLayoutMovable,
   moveSectionToIndex,

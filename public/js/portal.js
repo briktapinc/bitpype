@@ -1499,6 +1499,11 @@
       canHideMobile: !chrome,
       width: section && section.width === 'full' ? 'full' : 'contained',
       hideOnMobile: !!(section && section.hideOnMobile === true),
+      // Batch 188 knobs — design variant (spec §4/§6): chrome never;
+      // options come from the registry the server sent with the page.
+      variant:
+        section && typeof section.variant === 'string' && section.variant ? section.variant : 'standard',
+      variantOptions: (L && L.variants && L.variants.types && L.variants.types[type]) || [],
     };
   }
 
@@ -1542,6 +1547,7 @@
         model: JSON.parse(JSON.stringify(data.sections || [])),
         saved: JSON.parse(JSON.stringify(data.sections || [])),
         palette: data.palette || { content: [], modules: [] },
+        variants: data.variants || null,
         theme: data.theme || {},
         padding: data.padding || { floor: 22, max: 160, defaultPx: 56 },
         tokens: data.tokens || {},
@@ -1831,6 +1837,7 @@
         knobs.appendChild(layoutPaddingKnob(i, section));
         if (info.canWidth) knobs.appendChild(layoutWidthKnob(i, section));
         if (info.canHideMobile) knobs.appendChild(layoutHideMobileKnob(i, section));
+        knobs.appendChild(layoutVariantKnob(i, section));
       }
     }
     const actions = document.getElementById('layout-side-actions');
@@ -2085,6 +2092,54 @@
     layoutMarkDirty();
     renderLayoutSide();
     postLayoutStyle(index, { hideOnMobile: !!hidden });
+  }
+
+  /* Batch 188 — design variant picker (spec §6): the registry's
+   * variants for this section's type, with the selected entry's
+   * description/bestFor as the hint. A variant is a different
+   * composition, not a class toggle, so changing it re-renders the
+   * whole canvas with the site's real content — the preview IS the
+   * picker surface; Save commits through the canonical layout save.
+   * Stored as section.variant=<id>; "standard" stores nothing. */
+  function layoutVariantKnob(index, section) {
+    const info = layoutInfo(section);
+    const wrap = layoutEl('div', 'layout-knob');
+    if (!info.variantOptions.length) return wrap;
+    wrap.appendChild(layoutEl('label', '', 'Design'));
+    const sel = document.createElement('select');
+    sel.className = 'layout-variant-select';
+    for (const opt of info.variantOptions) {
+      const o = document.createElement('option');
+      o.value = opt.id;
+      o.textContent = opt.label;
+      if (opt.id === info.variant) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => layoutSetVariant(index, sel.value));
+    wrap.appendChild(sel);
+    const current = info.variantOptions.find((o) => o.id === info.variant) || info.variantOptions[0];
+    if (current) {
+      const note = layoutEl(
+        'p',
+        'hint',
+        current.description + (current.bestFor ? ` Best for: ${current.bestFor}` : '')
+      );
+      note.style.margin = '6px 0 0';
+      wrap.appendChild(note);
+    }
+    return wrap;
+  }
+
+  function layoutSetVariant(index, id) {
+    const L = layoutSession();
+    const section = L && L.model[index];
+    if (!section) return;
+    layoutSnapshot();
+    if (id && id !== 'standard') section.variant = id;
+    else delete section.variant;
+    layoutMarkDirty();
+    renderLayoutSide();
+    renderLayoutCanvas();
   }
 
   function layoutAfterStructural() {

@@ -33,6 +33,7 @@ const path = require('path');
 const ai = require('./ai');
 const googleFonts = require('../public/js/fonts.js');
 const siteIcons = require('./siteIcons');
+const sectionVariants = require('./sectionVariants');
 const seoSchema = require('./seoSchema');
 const siteLegal = require('./siteLegal');
 const { assertPublicUrl } = require('../server/urlSafety');
@@ -546,7 +547,7 @@ function siteCss(t) {
   const minimal = `${root}\n*{box-sizing:border-box} img{max-width:100%;height:auto} .ws-edit{cursor:text}\n${brandLogoCss()}\n${subNav}\n${icons}`;
   const fontRules = themeFontRules();
   if (!theme.baseCss) {
-    return `${minimal}\n${theme.customCss || ''}\n${fontRules}\n${spacingGuardCss()}`;
+    return `${minimal}\n${theme.customCss || ''}\n${fontRules}\n${spacingGuardCss()}\n${sectionVariants.variantCss()}`;
   }
   const base = `
 ${root}
@@ -645,7 +646,7 @@ ${icons}
   .nav-sub{position:static;display:none;box-shadow:none;border:0;margin:0;padding:0}
   section.block{padding:40px 0}
 }`;
-  return (theme.customCss ? `${base}\n${theme.customCss}` : base) + `\n${fontRules}\n${spacingGuardCss()}`;
+  return (theme.customCss ? `${base}\n${theme.customCss}` : base) + `\n${fontRules}\n${spacingGuardCss()}\n${sectionVariants.variantCss()}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1627,6 +1628,15 @@ const RENDERERS = {
   heading: cHeading,
   image: cImage,
 };
+
+/* Batch 188 — variant renderers (spec §4): per type, a map of
+ * registry id → renderer with the standard renderer's signature
+ * (content, theme, edit, section). Dispatch happens in sectionToHtml:
+ * a stored, valid, non-standard section.variant with a renderer here
+ * wins; anything else (absent, "standard", unknown id) renders the
+ * standard path above, byte-identically. Batch 188 registers NONE —
+ * foundation only; the Batch 189 wave fills this map. */
+const VARIANT_RENDERERS = {};
 
 const PREVIEW_EDIT_STYLE = `<style data-ws-edit-style="1">
 html.ws-editing [data-edit]{
@@ -3318,6 +3328,13 @@ function decorateSectionRoot(html, section, content, edit) {
   const knobClasses = [];
   if (section && section.width === 'full') knobClasses.push('bp-sec-full');
   if (section && section.hideOnMobile === true) knobClasses.push('bp-sec-nomobile');
+  // Batch 188: data-variant, stamped ONLY when a valid non-standard
+  // variant is set — a variant-free section's root is byte-identical.
+  const variantId = section ? sectionVariants.variantOf(section) : sectionVariants.STANDARD;
+  const variantAttr =
+    variantId !== sectionVariants.STANDARD && sectionVariants.isValidVariant(type, variantId)
+      ? variantId
+      : '';
   const extra = [sectionExtraClass(section, content), ...knobClasses].filter(Boolean).join(' ');
   const style = sectionInlineStyle(section, content);
   const sid = typeof section.id === 'string' ? section.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) : '';
@@ -3325,6 +3342,9 @@ function decorateSectionRoot(html, section, content, edit) {
     let r = rest || '';
     if (!/\bdata-ws-section-type\s*=/.test(r)) {
       r += ` data-ws-section="1" data-ws-section-type="${esc(type)}"`;
+    }
+    if (variantAttr && !/\bdata-variant\s*=/.test(r)) {
+      r += ` data-variant="${esc(variantAttr)}"`;
     }
     if (edit && Number.isInteger(edit.page) && Number.isInteger(edit.section)) {
       if (!/\bdata-ws-page\s*=/.test(r)) r += ` data-ws-page="${Number(edit.page)}"`;
@@ -3362,13 +3382,24 @@ function sectionToHtml(section, theme, edit) {
   const t = normalizeTheme(theme);
   try {
     if (!section || typeof section.type !== 'string') return '<!-- invalid section -->';
-    const fn = RENDERERS[section.type] || cCustom;
+    // Batch 188 — variant dispatch (spec §4): a stored, valid,
+    // non-standard variant with a registered variant renderer wins;
+    // absent / "standard" / unknown ids render the standard path
+    // (an unknown id is reported by QA, never silently kept — §3).
+    const variantId = sectionVariants.variantOf(section);
+    const variantFn =
+      variantId !== sectionVariants.STANDARD &&
+      sectionVariants.isValidVariant(section.type, variantId) &&
+      VARIANT_RENDERERS[section.type]
+        ? VARIANT_RENDERERS[section.type][variantId]
+        : null;
+    const fn = variantFn || RENDERERS[section.type] || cCustom;
     const content = section.content && typeof section.content === 'object' ? section.content : {};
     const body =
       fn === cCustom && !RENDERERS[section.type]
         ? Object.assign({ heading: content.heading || content.title || section.type }, content)
         : content;
-    const html = fn(body, t, edit || null) || '';
+    const html = fn(body, t, edit || null, section) || '';
     return decorateSectionRoot(html, section, content, edit || null);
   } catch (e) {
     return `<!-- section render error: ${esc(e.message || 'unknown')} -->`;
@@ -7062,6 +7093,31 @@ async function qaSite(db, websiteId) {
     unknownTypes.size ? `Generic block used for: ${[...unknownTypes].join(', ')}` : 'All section types known.'
   );
 
+  // 7b. Batch 188 — section variants must be registry ids (spec §3:
+  // an unknown id renders as standard but is REPORTED, never silently
+  // kept). Chrome carrying a variant is reported too (v1 excludes it).
+  {
+    const badVariants = [];
+    for (const p of pages) {
+      for (const s of p.sections || []) {
+        if (!s || !('variant' in s)) continue;
+        const id = sectionVariants.variantOf(s);
+        if (sectionVariants.CHROME_TYPES.has(String(s.type || '')) && id !== sectionVariants.STANDARD) {
+          badVariants.push(`${p.slug || '/'}: ${s.type} is chrome and cannot carry variant "${s.variant}"`);
+        } else if (!sectionVariants.isValidVariant(s.type, id)) {
+          badVariants.push(`${p.slug || '/'}: ${s.type} variant "${s.variant}" is not in the registry`);
+        }
+      }
+    }
+    check(
+      'section-variants-valid',
+      badVariants.length === 0,
+      badVariants.length
+        ? `Unknown section variant(s): ${badVariants.slice(0, 6).join('; ')}`
+        : 'All section variants are registry ids.'
+    );
+  }
+
   // 8. Custom sites: no mandatory template hero. Pass when freeform, or modular with
   // any purposeful content (columns/html/heading/image/hero/cta/contact/module…).
   let reqOk = false;
@@ -8608,6 +8664,8 @@ module.exports = {
   // components / rendering
   COMPONENT_TYPES,
   LAYOUT_SECTION_TYPES,
+  RENDERERS,
+  VARIANT_RENDERERS,
   sectionToHtml,
   sectionLayoutCss,
   renderPage,

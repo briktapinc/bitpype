@@ -67,6 +67,26 @@ function validatePages(pages) {
         if (!s.content || typeof s.content !== 'object' || Array.isArray(s.content)) {
           throw siteErr('INVALID_PAGES', `pages[${i}].sections[${j}].content must be an object.`);
         }
+        // Batch 188 — section variant (spec §3), mirroring server/domain.js.
+        if (s.variant != null) {
+          const variants = require('../sectionVariants');
+          const v = typeof s.variant === 'string' ? s.variant.trim() : '';
+          if (variants.CHROME_TYPES.has(s.type) && v && v !== variants.STANDARD) {
+            throw siteErr(
+              'CHROME_VARIANT',
+              `pages[${i}].sections[${j}]: ${s.type} is page chrome and cannot carry a design variant in v1.`
+            );
+          }
+          if (!v || v === variants.STANDARD || !variants.isValidVariant(s.type, v)) {
+            throw siteErr(
+              'UNKNOWN_VARIANT',
+              `pages[${i}].sections[${j}]: unknown variant ${JSON.stringify(s.variant)} for section type "${s.type}". Valid variants: ${
+                variants.idsFor(s.type).filter((x) => x !== variants.STANDARD).join(', ') ||
+                '(none — omit variant for the standard layout)'
+              }.`
+            );
+          }
+        }
       });
     }
   });

@@ -2292,6 +2292,15 @@ function toolDefs({ clientScoped = false } = {}) {
       },
     },
     {
+      name: 'design.variants',
+      description:
+        'Batch 188: the section-variant registry (spec §4) — for each section type, the layout variants a build may set via section.variant on design.deliver / website.edit sections, with agent metadata (description, bestFor, avoidWhen, contentBudget). "standard" is the default and is never stored — omit variant for it. Unknown ids are rejected at deliver with the valid ids named. Read-only; consult BEFORE finalising a build so the variant mix is a deliberate choice.',
+      inputSchema: {
+        type: 'object',
+        properties: { type: { type: 'string' } },
+      },
+    },
+    {
       name: 'design.ask',
       description:
         'Ask clarifying question. Pass internal:true for agent-only notes (cross-checks, verdicts) — internal notes are never emailed to the client and do not hold the job in questions_pending.',
@@ -3202,6 +3211,24 @@ async function callParityTool(ws, name, a) {
         baseCss: a.baseCss,
         note: a.note,
       });
+    }
+    case 'design.variants': {
+      const variants = require('../src/sectionVariants');
+      const summary = variants.registrySummary();
+      const only = a.type != null ? String(a.type).trim() : '';
+      if (only) {
+        return {
+          type: only,
+          variants: summary.types[only] || [],
+          note: variants.isRegisteredType(only)
+            ? 'Set section.variant to one of these ids on design.deliver / website.edit sections; omit variant for "standard".'
+            : `Unknown section type "${only}". Registered types: ${Object.keys(summary.types).join(', ')}.`,
+        };
+      }
+      return {
+        ...summary,
+        note: 'Set section.variant to a non-standard id on design.deliver / website.edit sections; omit variant for "standard" (it is never stored). Unknown ids are rejected at deliver with the valid ids named.',
+      };
     }
     case 'fonts.list': {
       const fonts = require('../public/js/fonts.js');

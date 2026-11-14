@@ -2128,6 +2128,17 @@ function validateWebsitePayload(payload, previousPages = [], previousTheme = {})
   if (payload.theme != null && (typeof payload.theme !== 'object' || Array.isArray(payload.theme))) {
     throw fail('INVALID_ARGS', 'theme must be an object.');
   }
+  // Batch 188 — section variants (spec §3): an unknown variant id is
+  // rejected with the valid ids for the type named; the field is
+  // stored only when non-default, so a stored "standard" is refused
+  // here too. Same validator the portal layout save re-checks with.
+  {
+    const structure = require('./siteStructure');
+    for (const page of payload.pages) {
+      const problems = structure.validateSectionVariants(page.sections || []);
+      if (problems.length) throw fail(problems[0].code, problems[0].message);
+    }
+  }
   require('./siteContentQuality').assertNoNewDefects(payload.pages, previousPages, payload.theme, previousTheme);
   // Reject class-heavy freeform HTML with missing/unapplied CSS before it becomes live.
   // Match liberateTheme so we validate the same theme that deliver/save will store.

@@ -2274,6 +2274,28 @@ function validatePages(pages) {
         if (!s.content || typeof s.content !== 'object' || Array.isArray(s.content)) {
           throw siteErr('INVALID_PAGES', `pages[${i}].sections[${j}].content must be an object.`);
         }
+        // Batch 188 — section variant (spec §3): deliver validation
+        // rejects unknown ids with a named error listing the valid
+        // ids for the type; "standard" is never stored (omit it).
+        if (s.variant != null) {
+          const variants = require('../src/sectionVariants');
+          const v = typeof s.variant === 'string' ? s.variant.trim() : '';
+          if (variants.CHROME_TYPES.has(s.type) && v && v !== variants.STANDARD) {
+            throw siteErr(
+              'CHROME_VARIANT',
+              `pages[${i}].sections[${j}]: ${s.type} is page chrome and cannot carry a design variant in v1.`
+            );
+          }
+          if (!v || v === variants.STANDARD || !variants.isValidVariant(s.type, v)) {
+            throw siteErr(
+              'UNKNOWN_VARIANT',
+              `pages[${i}].sections[${j}]: unknown variant ${JSON.stringify(s.variant)} for section type "${s.type}". Valid variants: ${
+                variants.idsFor(s.type).filter((x) => x !== variants.STANDARD).join(', ') ||
+                '(none — omit variant for the standard layout)'
+              }.`
+            );
+          }
+        }
       });
     }
   });
@@ -2299,7 +2321,7 @@ const PAGE_TOP_KEYS = new Set([
   'menuParent',
   'menu_parent',
 ]);
-const SECTION_TOP_KEYS = new Set(['type', 'content', 'cols', 'cells']);
+const SECTION_TOP_KEYS = new Set(['type', 'content', 'cols', 'cells', 'variant']);
 const THEME_TOP_KEYS = new Set([
   'primary',
   'secondary',
@@ -2385,7 +2407,7 @@ function collectSaveShapeWarnings(pages, theme) {
           for (const sk of Object.keys(s)) {
             if (!SECTION_TOP_KEYS.has(sk)) {
               warnings.push(
-                `pages[${i}].sections[${j}] has unknown key "${sk}" — use type, content, cols, cells (columns layout).`
+                `pages[${i}].sections[${j}] has unknown key "${sk}" — use type, content, cols, cells (columns layout), variant (design variant id).`
               );
             }
           }

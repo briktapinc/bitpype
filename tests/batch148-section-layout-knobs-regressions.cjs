@@ -122,17 +122,24 @@ const goldenPages = () => [
     ],
   },
 ];
+/* Batch 188 re-pin (2026-11-14): the four render goldens below moved
+ * because siteCss now appends the section-variant CSS block (spec §4;
+ * scoped [data-variant] rules + §5 primitives — inert on this
+ * knob-free, variant-free fixture). Pairwise proof: rendering this
+ * fixture on the 188 tree and stripping exactly "\n" + variantCss()
+ * restores the pre-188 hashes byte-for-byte (home 52eed019…, about
+ * f2e12d8c…, preview 8f845c06…, stacked c909f657…). */
 const GOLDEN = {
-  renderPageHome: '52eed0196de5611fe113066ba57d8472672a83272df5c9c1495fe5c2ab86b3f7',
-  renderPageAbout: 'f2e12d8c99483bc5c5d21c305a32ce1f0e45e68fac445f92e8b4d632150138c1',
-  renderPageHomePreview: '8f845c0685ad67a4caa8cf44cc30ca7b5c0bb2ef35952d139929d80ccebcdac4',
-  renderSiteStacked: 'c909f657f5d2b1bb90bafe0663c4d56b237a3e8e9473bf0550e09c44ffd49c65',
+  renderPageHome: 'e7178dd08969d7f73ca26c7cefe816608ebc24ac033cb5d90d14c03a7e9c51d9',
+  renderPageAbout: '9859d97beb46ee89bd9907175c2509f0442b3ab27abbdec28864804015ba2503',
+  renderPageHomePreview: '638c2c88ed723878b9f6cd2fceae0dbfc0d7a4b8dd48bbaf7a98d23f2657067b',
+  renderSiteStacked: 'a600092d53379243ff2f60b4190baef2204b4c98f41116f2e377c18df4f1593b',
   /* Export goldens: writeStaticPages output captured from the same
    * pristine pre-148 engine (the exporter adds its own transforms —
    * detail meta, legal links — on top of renderPage, so export pins
    * are pinned against export output, not render output). */
-  exportIndex: '7f4d179752d04994c16e38432f4c1d32fa6183278cf814c3b0f86ff31b43318e',
-  exportAbout: '7dd3910a0473ac1393fd22d6ff9ab13220dee74c54ec5a9bee36760e691bd8c5',
+  exportIndex: '3cce0c362e20faca9111d7fe97d3a8bdb094acc260684ee4275a48d09b69f5e6',
+  exportAbout: 'be020a297bfc7bbed58d6e174765bcdf2315401d7950fd95074c39f515374ae2',
 };
 
 const LEAD_A = 148001;

@@ -636,7 +636,22 @@ function deriveBrand(theme, pages) {
 
 function sectionTypes(page) {
   const sections = page && Array.isArray(page.sections) ? page.sections : [];
-  return sections.map((s) => String((s && s.type) || '')).filter((t) => t && !CHROME_TYPES.has(t));
+  return sections
+    .map((s) => {
+      const t = String((s && s.type) || '');
+      if (!t) return '';
+      // Batch 188 — the §4a layout fingerprint is the ordered set of
+      // (type → variant): a section carrying a non-standard variant
+      // contributes "type@variant". Variant-free sections contribute
+      // the bare type, so every existing site's layout hash is
+      // unchanged until someone actually picks a variant.
+      const v =
+        s && typeof s.variant === 'string' && s.variant.trim() && s.variant.trim() !== 'standard'
+          ? s.variant.trim()
+          : '';
+      return v ? `${t}@${v}` : t;
+    })
+    .filter((t) => t && !CHROME_TYPES.has(t.split('@')[0]));
 }
 
 function heroSignal(homePage) {
