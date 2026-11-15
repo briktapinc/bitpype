@@ -1977,12 +1977,16 @@ async function billingSummary(userId, opts = {}) {
 async function listPayments({ limit = 100, q = '' } = {}) {
   const lim = Math.min(500, Math.max(1, Number(limit) || 100));
   if (String(q || '').trim()) {
-    const like = `%${String(q).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // Batch 180 (L13)
+    // Batch 191: LIKE escape char is '!' — a backslash ESCAPE literal is not
+    // dialect-safe (MySQL parses a lone backslash in a string literal as an
+    // escaped quote -> unterminated string; SQLite reads the doubled form as
+    // a 2-char escape and errors). '!' is one plain char on both dialects.
+    const like = `%${String(q).trim().replace(/[!%_]/g, (c) => `!${c}`)}%`; // Batch 180 (L13)
     return query(
       `SELECT p.*, u.email AS user_email
        FROM payments p
        LEFT JOIN users u ON u.id = p.user_id
-       WHERE u.email LIKE :like ESCAPE '\\' OR p.stripe_invoice_id LIKE :like ESCAPE '\\' OR p.stripe_charge_id LIKE :like ESCAPE '\\'
+       WHERE u.email LIKE :like ESCAPE '!' OR p.stripe_invoice_id LIKE :like ESCAPE '!' OR p.stripe_charge_id LIKE :like ESCAPE '!'
        ORDER BY p.id DESC LIMIT ${lim}`,
       { like }
     );

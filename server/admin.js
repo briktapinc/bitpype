@@ -41,14 +41,18 @@ function notDeletedClause(alias = 'u') {
 
 async function listUsers({ q = '', limit = 100 } = {}) {
   const lim = Math.min(500, Math.max(1, Number(limit) || 100));
-  const like = `%${String(q || '').trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // Batch 180 (L13): escape LIKE wildcards
+  // Batch 191: LIKE escape char is '!' — a backslash ESCAPE literal is not
+  // dialect-safe (MySQL parses a lone backslash in a string literal as an
+  // escaped quote -> unterminated string; SQLite reads the doubled form as
+  // a 2-char escape and errors). '!' is one plain char on both dialects.
+  const like = `%${String(q || '').trim().replace(/[!%_]/g, (c) => `!${c}`)}%`; // Batch 180 (L13): escape LIKE wildcards
   if (String(q || '').trim()) {
     return query(
       `SELECT u.id, u.email, u.name, u.is_super_admin, u.account_type, u.status, u.last_login_at, u.created_at, u.totp_enabled,
               (SELECT COUNT(*) FROM workspace_members m WHERE m.user_id = u.id) AS workspace_count
        FROM users u
        WHERE ${notDeletedClause('u')}
-         AND (u.email LIKE :like ESCAPE '\\' OR u.name LIKE :like ESCAPE '\\')
+         AND (u.email LIKE :like ESCAPE '!' OR u.name LIKE :like ESCAPE '!')
        ORDER BY u.id DESC
        LIMIT ${lim}`,
       { like }
@@ -296,14 +300,18 @@ async function deleteUser(id, { actorUserId = null } = {}) {
 
 async function listWorkspaces({ q = '', limit = 100 } = {}) {
   const lim = Math.min(500, Math.max(1, Number(limit) || 100));
-  const like = `%${String(q || '').trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // Batch 180 (L13)
+  // Batch 191: LIKE escape char is '!' — a backslash ESCAPE literal is not
+  // dialect-safe (MySQL parses a lone backslash in a string literal as an
+  // escaped quote -> unterminated string; SQLite reads the doubled form as
+  // a 2-char escape and errors). '!' is one plain char on both dialects.
+  const like = `%${String(q || '').trim().replace(/[!%_]/g, (c) => `!${c}`)}%`; // Batch 180 (L13)
   if (String(q || '').trim()) {
     return query(
       `SELECT w.id, w.name, w.slug, w.created_at, w.updated_at,
               (SELECT COUNT(*) FROM workspace_members m WHERE m.workspace_id = w.id) AS member_count,
               (SELECT COUNT(*) FROM workspace_tokens t WHERE t.workspace_id = w.id) AS token_count
        FROM workspaces w
-       WHERE w.name LIKE :like ESCAPE '\\' OR w.slug LIKE :like ESCAPE '\\'
+       WHERE w.name LIKE :like ESCAPE '!' OR w.slug LIKE :like ESCAPE '!'
        ORDER BY w.id DESC
        LIMIT ${lim}`,
       { like }

@@ -183,8 +183,12 @@ async function listSubscribers(args = {}) {
   const where = [];
   const params = {};
   if (search) {
-    where.push("(email LIKE :q ESCAPE '\\' OR name LIKE :q ESCAPE '\\')");
-    params.q = `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`; // Batch 180 (L13)
+    where.push("(email LIKE :q ESCAPE '!' OR name LIKE :q ESCAPE '!')");
+    // Batch 191: LIKE escape char is '!' — a backslash ESCAPE literal is not
+    // dialect-safe (MySQL parses a lone backslash in a string literal as an
+    // escaped quote -> unterminated string; SQLite reads the doubled form as
+    // a 2-char escape and errors). '!' is one plain char on both dialects.
+    params.q = `%${search.replace(/[!%_]/g, (c) => `!${c}`)}%`; // Batch 180 (L13)
   }
   if (status) {
     where.push('status = :st');

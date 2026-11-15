@@ -571,9 +571,13 @@ async function listPortalUsers({ q = '', limit = 200 } = {}) {
   const rows = needle
     ? await query(
         `SELECT ${cols} FROM client_portal_users
-          WHERE email LIKE :like ESCAPE '\\' OR business_name LIKE :like ESCAPE '\\'
+          WHERE email LIKE :like ESCAPE '!' OR business_name LIKE :like ESCAPE '!'
           ORDER BY id DESC LIMIT ${lim}`,
-        { like: `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%` } // Batch 180 (L13)
+        // Batch 191: LIKE escape char is '!' — a backslash ESCAPE literal is not
+        // dialect-safe (MySQL parses a lone backslash in a string literal as an
+        // escaped quote -> unterminated string; SQLite reads the doubled form as
+        // a 2-char escape and errors). '!' is one plain char on both dialects.
+        { like: `%${needle.replace(/[!%_]/g, (c) => `!${c}`)}%` } // Batch 180 (L13)
       )
     : await query(`SELECT ${cols} FROM client_portal_users ORDER BY id DESC LIMIT ${lim}`);
   const defaults = await portalTabs.loadConfiguredDefaults();
