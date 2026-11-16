@@ -220,7 +220,7 @@
         btn.disabled = true;
         try {
           const captchaToken = await captchaLogin.getToken();
-          await api('/api/v1/portal/login', {
+          const loginRes = await api('/api/v1/portal/login', {
             method: 'POST',
             body: JSON.stringify({
               email: document.getElementById('login-email').value.trim(),
@@ -230,6 +230,23 @@
           });
           msgLogin.className = 'msg ok';
           msgLogin.textContent = 'Signed in.';
+          // Batch 192 (Greptile detailed D): portal sign-in regenerates
+          // the session, which destroys the pre-auth oauthPending park
+          // — and Batch 180 L2 forbids resurrecting or retro-binding
+          // that park. This page still sits on the original /authorize
+          // URL with its query intact, so re-run that exact request
+          // now that we are authenticated: the server revalidates the
+          // params via oauth.validateAuthorizeParams and parks a FRESH
+          // request bound to this user, and refresh() below can then
+          // reach consent. redirect:'manual' — an invalid request's
+          // error redirect goes to the client, never followed here;
+          // refresh() surfaces NO_PENDING if revalidation failed.
+          // Skipped when MFA is still outstanding (not signed in yet).
+          if (!(loginRes && loginRes.data && loginRes.data.mfaRequired)) {
+            try {
+              await fetch(window.location.href, { redirect: 'manual', headers: { Accept: 'text/html' } });
+            } catch { /* refresh() below reports the outcome */ }
+          }
           await refresh();
         } catch (err) {
           msgLogin.className = 'msg err';
