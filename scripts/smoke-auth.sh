@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Password comes from the environment - never hardcode it here.
+# The previously hardcoded value was rotated in production on 2026-11-15
+# and is inert; the copy in this repo's history is safe only because
+# of that rotation.
+: "${SMOKE_OWNER_PASSWORD:?Set SMOKE_OWNER_PASSWORD to the current owner@example.com password}"
 sleep 4
 curl -sS -m 15 https://bitpype.com/health; echo
 CJ=/tmp/ws-auth.txt
 rm -f "$CJ"
 LOGIN=$(curl -sS -m 15 -c "$CJ" -b "$CJ" -X POST https://bitpype.com/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"owner@example.com","password":"ChangeMe_Scout1"}')
+  -d "{\"email\":\"owner@example.com\",\"password\":\"$SMOKE_OWNER_PASSWORD\"}")
 echo "LOGIN=$LOGIN"
 echo "$LOGIN" | grep -q '"productAccess":true' || { echo 'FAIL productAccess'; exit 1; }
 echo "$LOGIN" | grep -q '"subscribed":true' || { echo 'FAIL subscribed'; exit 1; }
