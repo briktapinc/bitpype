@@ -285,6 +285,55 @@ router.put('/portal-access-defaults', async (req, res) => {
   }
 });
 
+// ---------- Portal Training modules (Batch 194) ----------
+// The learning catalog behind the portal Training tab: add / edit /
+// remove / reorder / publish-toggle. Unpublished modules never reach
+// the portal list (server/learningModules.js listPublished).
+router.get('/training-modules', async (req, res) => {
+  try {
+    ok(res, { modules: await require('../learningModules').listAll() });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+router.post('/training-modules', async (req, res) => {
+  try {
+    const data = await require('../learningModules').createModule(req.body || {});
+    await platform.audit(req.session.userId, 'training_module.create', `slug=${data.slug} title=${data.title}`);
+    ok(res, { module: data });
+  } catch (e) {
+    fail(res, e, e.code === 'INVALID' ? 400 : 500);
+  }
+});
+router.put('/training-modules/reorder', async (req, res) => {
+  try {
+    const ids = (req.body && (req.body.orderedIds || req.body.ids)) || [];
+    const modules = await require('../learningModules').reorderModules(ids);
+    await platform.audit(req.session.userId, 'training_module.reorder', `ids=${ids.join(',')}`);
+    ok(res, { modules });
+  } catch (e) {
+    fail(res, e, e.code === 'INVALID' ? 400 : 500);
+  }
+});
+router.patch('/training-modules/:id', async (req, res) => {
+  try {
+    const data = await require('../learningModules').updateModule(Number(req.params.id), req.body || {});
+    await platform.audit(req.session.userId, 'training_module.update', `id=${req.params.id} ${JSON.stringify(req.body || {}).slice(0, 500)}`);
+    ok(res, { module: data });
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'INVALID' ? 400 : 500);
+  }
+});
+router.delete('/training-modules/:id', async (req, res) => {
+  try {
+    const data = await require('../learningModules').deleteModule(Number(req.params.id));
+    await platform.audit(req.session.userId, 'training_module.delete', `id=${req.params.id} slug=${data.slug}`);
+    ok(res, data);
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : 500);
+  }
+});
+
 // ---------- Workspaces ----------
 router.get('/workspaces', async (req, res) => {
   try {

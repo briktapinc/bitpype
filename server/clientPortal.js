@@ -170,6 +170,8 @@ module.exports = {
   billingForClient: portalBilling.billingForClient,
   openBillingPortal: portalBilling.openBillingPortal,
   openCheckout: portalBilling.openCheckout,
+  packagesForClient: portalBilling.packagesForClient,
+  openPackageCheckout: portalBilling.openPackageCheckout,
   changePlan: portalBilling.changePlan,
   cancelToFree: portalBilling.cancelToFree,
   resumeBilling: portalBilling.resumeBilling,

@@ -660,6 +660,12 @@ window.ScoutApi = (() => {
     adminUpdatePortalUser: (id, body) => patch('/admin/portal-users/' + id, body),
     adminPortalAccessDefaults: () => get('/admin/portal-access-defaults'),
     adminUpdatePortalAccessDefaults: (body) => put('/admin/portal-access-defaults', body),
+    // Batch 194 — portal Training (learning) catalog management.
+    adminTrainingModules: () => get('/admin/training-modules'),
+    adminCreateTrainingModule: (body) => post('/admin/training-modules', body),
+    adminUpdateTrainingModule: (id, body) => patch('/admin/training-modules/' + id, body),
+    adminDeleteTrainingModule: (id) => del('/admin/training-modules/' + id),
+    adminReorderTrainingModules: (orderedIds) => put('/admin/training-modules/reorder', { orderedIds }),
     adminWorkspaces: (q) => get('/admin/workspaces', q),
     adminWorkspace: (id) => get('/admin/workspaces/' + id),
     adminCreateWorkspace: (body) => post('/admin/workspaces', body),

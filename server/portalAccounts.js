@@ -679,21 +679,20 @@ async function updatePortalUserAccess(id, patch = {}) {
  */
 async function getPortalAccessDefaults() {
   const defaults = await portalTabs.loadConfiguredDefaults();
+  // Batch 194: emit every registered type (owner/renter content is
+  // exactly what it was; partner/student slices are additive keys).
+  const defaultsOut = {};
+  const factoryOut = {};
+  for (const type of portalTabs.USER_TYPES) {
+    defaultsOut[type] = { tabs: defaults.tabs[type], modules: defaults.modules[type] };
+    factoryOut[type] = {
+      tabs: portalTabs.FACTORY_DEFAULTS.tabs[type],
+      modules: portalTabs.FACTORY_DEFAULTS.modules[type],
+    };
+  }
   return {
-    defaults: {
-      owner: { tabs: defaults.tabs.owner, modules: defaults.modules.owner },
-      renter: { tabs: defaults.tabs.renter, modules: defaults.modules.renter },
-    },
-    factory: {
-      owner: {
-        tabs: portalTabs.FACTORY_DEFAULTS.tabs.owner,
-        modules: portalTabs.FACTORY_DEFAULTS.modules.owner,
-      },
-      renter: {
-        tabs: portalTabs.FACTORY_DEFAULTS.tabs.renter,
-        modules: portalTabs.FACTORY_DEFAULTS.modules.renter,
-      },
-    },
+    defaults: defaultsOut,
+    factory: factoryOut,
     tabs: portalTabs.PORTAL_TABS.map((key) => ({ key, label: portalTabs.TAB_LABELS[key] })),
     modules: portalTabs.PORTAL_MODULES.map((key) => ({
       key,

@@ -324,10 +324,10 @@ async function main() {
     let n = 0;
     const { census } = require(path.join(root, 'scripts/xss-census.cjs'));
     const cz = census();
-    assert.equal(cz.summary.total, 514, 'SEC-13 census total unchanged by Batch 170 (zero new sinks)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 386, 'SEC-13 safe classes unchanged (Batch 176 finisher re-pin: 380 -> 381 — audited Assistant page-head shell reclassification RAW -> STATIC in app.js, multiset-proven vs the Batch 175 base; see the batch104 note)');
-    assert.equal(cz.summary.RAW, 87, 'SEC-13 RAW unchanged (Batch 176 finisher re-pin: 86 -> 85 — same audited reclassification)');
-    assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT unchanged');
+    assert.equal(cz.summary.total, 518, 'SEC-13 census total unchanged by Batch 170 (zero new sinks)');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 387, 'SEC-13 safe classes unchanged (Batch 176 finisher re-pin: 380 -> 381 — audited Assistant page-head shell reclassification RAW -> STATIC in app.js, multiset-proven vs the Batch 175 base; see the batch104 note)');
+    assert.equal(cz.summary.RAW, 88, 'SEC-13 RAW unchanged (Batch 176 finisher re-pin: 86 -> 85 — same audited reclassification)');
+    assert.equal(cz.summary.IDENT, 43, 'SEC-13 IDENT unchanged');
     n += 4;
 
     const baseline = JSON.parse(read('tests/batch103-xss-baseline.json'));
@@ -347,7 +347,12 @@ async function main() {
     // census totals unchanged (514 / 386 / 87 / 41) and the whole-tree
     // (file,kind,snippet) multiset is identical to the Batch 187
     // census — zero sinks added or removed, pure line movement.
-    assert.ok(baseline.includes('public/js/portal.js:14746'), 'baseline carries the shifted assistantMd sink at its new line');
+    // Batch 194 finisher re-pin: the Training/Packages portal
+    // insertions shifted the same sink +111 lines (14746 -> 14857);
+    // census totals moved per the Batch 194 batch103 note
+    // (518 / 387 / 88 / 43) and the regenerated baseline set equals
+    // the live census set exactly.
+    assert.ok(baseline.includes('public/js/portal.js:14857'), 'baseline carries the shifted assistantMd sink at its new line');
     assert.ok(!baseline.includes('public/js/portal.js:14394'), 'stale pre-shift baseline entry removed');
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const baseSet = new Set(baseline);

@@ -562,6 +562,8 @@ const portalTabs = require('../portalTabs');
 
 const PORTAL_ROUTE_TABS = [
   ['/assistant', 'assistant'],
+  ['/training', 'training'],
+  ['/packages', 'packages'],
   ['/site', 'website'],
   ['/changes', 'changes'],
   ['/forms', 'forms'],
@@ -1789,6 +1791,39 @@ router.get('/billing', requireClient, async (req, res) => {
     ok(res, await portal.billingForClient(req.client.workspace_id, req.client.email));
   } catch (e) {
     fail(res, e, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Batch 194 — Training (learning section) + Packages (student sign-up).
+// Both ride the Batch 29 tab guard above ('/training' → training,
+// '/packages' → packages): students get exactly these two, owners get
+// Training (Packages is student-tier unless admin grants it), renters
+// get neither — 403 TAB_FORBIDDEN, never just a hidden nav button.
+// ---------------------------------------------------------------------------
+router.get('/training', requireClient, async (req, res) => {
+  try {
+    const learning = require('../learningModules');
+    ok(res, { modules: await learning.listPublished() });
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
+router.get('/packages', requireClient, async (req, res) => {
+  try {
+    ok(res, await portal.packagesForClient(req.client.workspace_id, req.client.email));
+  } catch (e) {
+    fail(res, e, 500);
+  }
+});
+
+router.post('/packages/checkout', requireClient, actionLimit, async (req, res) => {
+  try {
+    const plan = (req.body && (req.body.plan || req.body.planId)) || 'standard';
+    ok(res, await portal.openPackageCheckout(req.client.workspace_id, req.client.email, plan));
+  } catch (e) {
+    fail(res, e);
   }
 });
 

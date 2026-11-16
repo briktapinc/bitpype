@@ -78,7 +78,8 @@ async function checkAsync(name, fn) {
 function partA() {
   check('user types: partner registered with owner-equal factory defaults', () => {
     const pt = require(path.join(root, 'server', 'portalTabs.js'));
-    assert.deepEqual(pt.USER_TYPES, ['owner', 'renter', 'partner']);
+    // Batch 194: 'student' joins the registry (Training + Packages only).
+    assert.deepEqual(pt.USER_TYPES, ['owner', 'renter', 'partner', 'student']);
     assert.deepEqual(pt.FACTORY_DEFAULTS.tabs.partner, pt.FACTORY_DEFAULTS.tabs.owner);
     assert.deepEqual(pt.FACTORY_DEFAULTS.modules.partner, pt.FACTORY_DEFAULTS.modules.owner);
     assert.equal(pt.normalizeUserType('partner'), 'partner');

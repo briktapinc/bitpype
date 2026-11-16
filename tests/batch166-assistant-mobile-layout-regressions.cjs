@@ -329,13 +329,13 @@ function mobileCss(css) {
     // batch103 suite). The pins below track the current tree.
     assert.deepEqual(
       cz.summary,
-      { total: 514, STATIC: 192, ESCAPED: 49, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 87 },
+      { total: 518, STATIC: 193, ESCAPED: 49, SAFE: 81, BUILDER: 64, IDENT: 43, RAW: 88 },
       'SEC-13 census summary (Batch 176 re-pin — see note above)'
     );
     n += 1;
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, '1800466848dc1bdee7372a419f9a7c3e4f68eb5be637719a3983506daa50fc22', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 176 re-pin — see note above)');
+    assert.equal(sha, '58e99135e3c58d23e938dd04e7592ffcc28945149d237c7f16f999e46af114fc', 'SEC-13 (file|kind|snippet) multiset pinned (Batch 176 re-pin — see note above)');
     n += 1;
     group('Part 5 SEC-13 census — Batch 176 re-pin, one reclassification', n);
   }

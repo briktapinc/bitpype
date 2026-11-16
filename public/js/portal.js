@@ -153,6 +153,8 @@
 
   const PORTAL_PANELS = [
     'assistant',
+    'training',
+    'packages',
     'website',
     'changes',
     'forms',
@@ -217,6 +219,10 @@
   const PANEL_ALIASES = {
     assistant: 'assistant',
     'ai-chat': 'assistant',
+    training: 'training',
+    learn: 'training',
+    learning: 'training',
+    packages: 'packages',
     website: 'website',
     preview: 'website',
     site: 'website',
@@ -383,6 +389,8 @@
     if (wrap) wrap.classList.toggle('is-website-wide', next === 'website');
 
     if (next === 'assistant' && typeof loadAssistant === 'function') loadAssistant().catch(() => {});
+    if (next === 'training' && typeof loadTraining === 'function') loadTraining().catch(() => {});
+    if (next === 'packages' && typeof loadPackages === 'function') loadPackages().catch(() => {});
     if (next === 'mcp' && state.mcpPaid) refreshMcpTokens().catch(() => {});
     if (next === 'soul' && typeof loadAgentSoul === 'function') loadAgentSoul().catch(() => {});
     if (next === 'changes') loadChangesHistory().catch(() => {});
@@ -5845,6 +5853,109 @@
   });
   document.getElementById('analytics-refresh').addEventListener('click', loadAnalytics);
   document.getElementById('analytics-days').addEventListener('change', loadAnalytics);
+
+  // Batch 194 — Training panel: published learning modules in admin
+  // order. Each module is a video (portrait file on narrow screens)
+  // with its full transcript under the player. Content is managed in
+  // Admin → Training; unpublished modules never reach this list.
+  let trainingLoaded = false;
+  async function loadTraining() {
+    const host = document.getElementById('training-host');
+    if (!host) return;
+    const data = await api('/training');
+    const modules = (data && data.modules) || [];
+    trainingLoaded = true;
+    if (!modules.length) {
+      host.innerHTML = '<p class="hint">No training videos yet — check back soon.</p>';
+      return;
+    }
+    const narrow = typeof window !== 'undefined' && window.innerWidth < 700;
+    host.innerHTML = modules
+      .map((m, i) => {
+        const src = narrow && m.videoMobileUrl ? m.videoMobileUrl : m.videoUrl;
+        const paras = String(m.transcript || '')
+          .split(/\n+/)
+          .filter(Boolean)
+          .map((p) => `<p style="margin:0 0 8px">${esc(p)}</p>`)
+          .join('');
+        return `<div class="panel" style="margin-bottom:16px">
+          <h3 style="margin:0 0 10px;font-size:1.05rem">${i + 1}. ${esc(m.title || '')}</h3>
+          ${
+            src
+              ? `<video controls preload="none" playsinline src="${esc(src)}" style="width:100%;max-width:880px;aspect-ratio:16/9;background:#000;border-radius:8px"></video>`
+              : '<p class="hint">Video coming soon.</p>'
+          }
+          <div class="training-transcript" style="margin-top:12px;max-width:880px">${paras}</div>
+        </div>`;
+      })
+      .join('');
+  }
+
+  // Batch 194 — Packages panel: the sign-up packages (live plan
+  // catalog, shared checkout engine). Built for students; completing
+  // checkout converts a student account to a full owner account.
+  async function loadPackages() {
+    const grid = document.getElementById('pkg-plan-grid');
+    const msg = document.getElementById('msg-packages');
+    if (!grid) return;
+    const data = await api('/packages');
+    const plans = (data && data.plans) || [];
+    const current = String((data && data.plan) || 'free');
+    const subscribed = !!(data && data.hasActiveSubscription);
+    grid.innerHTML = plans
+      .map((p) => {
+        const isCurrent = p.id === current && (p.id === 'free' ? !subscribed : subscribed);
+        let cta;
+        if (p.id === 'free') {
+          cta = isCurrent
+            ? '<span class="hint">Current plan</span>'
+            : '<span class="hint">Free to start</span>';
+        } else if (!p.priceConfigured) {
+          cta = '<span class="hint">Price not configured yet</span>';
+        } else if (isCurrent) {
+          cta = '<span class="hint">Current plan</span>';
+        } else {
+          cta = `<button class="btn" type="button" data-pkg-plan="${esc(p.id)}">${subscribed ? `Switch to ${esc(p.name)}` : `Sign up — ${esc(p.name)}`}</button>`;
+        }
+        return `<div class="plan-card${isCurrent ? ' is-current' : ''}${p.id === 'premium' ? ' is-featured' : ''}">
+        <div class="plan-card-h">
+          <h3>${esc(p.name)}</h3>
+          <div class="plan-price">${esc(p.priceLabel || '')}</div>
+        </div>
+        <p class="plan-tagline">${esc(p.tagline || '')}</p>
+        <ul class="plan-features">${(p.features || []).map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
+        <div class="plan-cta">${cta}</div>
+      </div>`;
+      })
+      .join('');
+    grid.querySelectorAll('[data-pkg-plan]').forEach((btn) => {
+      btn.onclick = async () => {
+        const plan = btn.getAttribute('data-pkg-plan');
+        if (msg) {
+          msg.className = 'msg';
+          msg.textContent = 'Opening secure checkout…';
+        }
+        try {
+          const out = await api('/packages/checkout', {
+            method: 'POST',
+            body: JSON.stringify({ plan }),
+          });
+          if (out && out.url) {
+            window.location.href = out.url;
+          } else if (msg) {
+            msg.className = 'msg ok';
+            msg.textContent = 'Your package was updated.';
+            loadPackages().catch(() => {});
+          }
+        } catch (e) {
+          if (msg) {
+            msg.className = 'msg err';
+            msg.textContent = errText(e);
+          }
+        }
+      };
+    });
+  }
 
   async function loadBilling() {
     try {

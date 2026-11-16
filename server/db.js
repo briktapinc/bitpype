@@ -479,6 +479,18 @@ async function migrate() {
         show_count INTEGER NOT NULL DEFAULT 1,
         PRIMARY KEY (portal_user_id, tip_id)
       );
+      CREATE TABLE IF NOT EXISTS learning_modules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        transcript TEXT NOT NULL DEFAULT '',
+        video_url TEXT NOT NULL DEFAULT '',
+        video_mobile_url TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        published INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
       CREATE TABLE IF NOT EXISTS mcp_oauth_auth_codes (
         code TEXT NOT NULL PRIMARY KEY,
         payload_json TEXT NOT NULL,
@@ -660,7 +672,7 @@ async function migrate() {
     try {
       db.exec(
         `UPDATE client_portal_users SET user_type = 'owner'
-          WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter', 'partner')`
+          WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter', 'partner', 'student')`
       );
     } catch {
       /* table may not exist on a bare schema */
@@ -1108,7 +1120,7 @@ async function migrate() {
     await ensureColumnMysql(conn, 'client_portal_users', 'module_overrides', 'TEXT NULL');
     await conn.query(
       `UPDATE client_portal_users SET user_type = 'owner'
-        WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter', 'partner')`
+        WHERE user_type IS NULL OR user_type NOT IN ('owner', 'renter', 'partner', 'student')`
     );
     await ensureColumnMysql(conn, 'workspace_tokens', 'lead_id', 'BIGINT UNSIGNED NULL');
     await ensureColumnMysql(conn, 'job_runs', 'trigger_source', "VARCHAR(40) NOT NULL DEFAULT 'legacy'");
@@ -1159,6 +1171,21 @@ async function migrate() {
         show_count INT NOT NULL DEFAULT 1,
         PRIMARY KEY (portal_user_id, tip_id),
         KEY idx_upsell_imp_shown (last_shown_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS learning_modules (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        slug VARCHAR(120) NOT NULL UNIQUE,
+        title VARCHAR(200) NOT NULL,
+        transcript TEXT NOT NULL,
+        video_url VARCHAR(500) NOT NULL DEFAULT '',
+        video_mobile_url VARCHAR(500) NOT NULL DEFAULT '',
+        sort_order INT NOT NULL DEFAULT 0,
+        published TINYINT(1) NOT NULL DEFAULT 1,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_learning_modules_pub (published, sort_order)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     await conn.query(`

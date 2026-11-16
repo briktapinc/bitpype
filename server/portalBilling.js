@@ -330,6 +330,58 @@ async function resumeBilling(workspaceId, clientEmail) {
   return require('./billing').resumeSubscription(userId);
 }
 
+/**
+ * Batch 194 — Packages tab (student sign-up surface).
+ *
+ * Unlike the Billing tab, this is the student's OWN purchase: the
+ * subscription attaches to the student's own billing user (created
+ * by ensureBillingUserForPortalClient), never to the workspace
+ * owner's plan — so the workspace-coverage block that guards the
+ * Billing tab (canSelfServe) deliberately does NOT apply here. The
+ * purchase itself runs through the SAME shared checkout engine as
+ * every other selling surface (billing.startOrChangePlan →
+ * createCheckoutSession); prices come from the live plan catalog,
+ * untouched. A completed checkout converts student → owner via the
+ * billing webhook hooks (server/studentConversion.js).
+ */
+async function packagesForClient(workspaceId, clientEmail) {
+  const billing = require('./billing');
+  const e = normalizeEmail(clientEmail);
+  let selfPlan = 'free';
+  let hasActiveSubscription = false;
+  if (e) {
+    const rows = await query(
+      `SELECT id, subscription_status, billing_plan FROM users WHERE email = :email LIMIT 1`,
+      { email: e }
+    );
+    if (rows[0]) {
+      selfPlan = billing.planOfUser(rows[0]);
+      hasActiveSubscription = billing.isSubscribed(rows[0]);
+    }
+  }
+  return {
+    plans: await billing.catalogForApi(),
+    plan: selfPlan,
+    hasActiveSubscription,
+    amountLabel: await require('./platform').getPlatformSetting('billing.amount_label', 'Bitpype plans'),
+  };
+}
+
+async function openPackageCheckout(workspaceId, clientEmail, planId = 'standard') {
+  const portalUser = await findByEmail(clientEmail);
+  const userId = await ensureBillingUserForPortalClient(
+    workspaceId,
+    clientEmail,
+    portalUser && portalUser.business_name
+  );
+  const { appUrl: base } = require('./stripeClient');
+  const plan = planId || 'standard';
+  return require('./billing').startOrChangePlan(userId, plan, {
+    successUrl: `${base()}/portal?checkout=success&plan=${encodeURIComponent(plan)}`,
+    cancelUrl: `${base()}/portal?checkout=cancel`,
+  });
+}
+
 async function openCreditsCheckout(workspaceId, clientEmail, quantity = 1) {
   const info = await billingForClient(workspaceId, clientEmail);
   if (!info.canSelfServe) {
@@ -356,6 +408,8 @@ module.exports = {
   submitChangeRequest,
   ensureBillingUserForPortalClient,
   billingForClient,
+  packagesForClient,
+  openPackageCheckout,
   openBillingPortal,
   openCheckout,
   changePlan,

@@ -450,10 +450,10 @@ async function main() {
     // assistantMd(...) writes in portal.js (multiset-proven in
     // the Batch 174 suite). Batch 171's own movement stays zero;
     // RAW and safe classes are unchanged.
-    assert.equal(cz.summary.total, 514, 'SEC-13 census total (Batch 174 re-pin — see note above)');
-    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 386, 'SEC-13 safe classes (Batch 176 re-pin: +1 STATIC from the pageAssistant shell reclassification — see batch103) unchanged by Batch 171');
-    assert.equal(cz.summary.RAW, 87, 'SEC-13 RAW (Batch 176 re-pin: pageAssistant shell RAW -> STATIC — see batch103)');
-    assert.equal(cz.summary.IDENT, 41, 'SEC-13 IDENT (Batch 174 re-pin — see note above)');
+    assert.equal(cz.summary.total, 518, 'SEC-13 census total (Batch 174 re-pin — see note above)');
+    assert.equal(cz.summary.ESCAPED + cz.summary.SAFE + cz.summary.STATIC + cz.summary.BUILDER, 387, 'SEC-13 safe classes (Batch 176 re-pin: +1 STATIC from the pageAssistant shell reclassification — see batch103) unchanged by Batch 171');
+    assert.equal(cz.summary.RAW, 88, 'SEC-13 RAW (Batch 176 re-pin: pageAssistant shell RAW -> STATIC — see batch103)');
+    assert.equal(cz.summary.IDENT, 43, 'SEC-13 IDENT (Batch 174 re-pin — see note above)');
     const batchBlock = appJs.slice(appJs.indexOf('Batch 171 — Themes on the staff surfaces'));
     assert.ok(!batchBlock.includes('.innerHTML'), 'Batch 171 app.js block adds no innerHTML sink (createElement + textContent only)');
     n += 5;

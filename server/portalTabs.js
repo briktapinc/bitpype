@@ -19,10 +19,13 @@
  *   .nav_overrides / .module_overrides, Admin → Users).
  *
  * Factory defaults:
- *   owner  → every tab, every module.
+ *   owner  → every tab except Packages, every module.
  *   renter → tabs [website, modules, rentals], modules [calltracking]
  *            (a site tenant gets their site, the call log, and their
  *            rental view — nothing else unless admin widens it).
+ *   student → tabs [training, packages], modules [] (Batch 194: a
+ *            pre-customer learning account; a completed package
+ *            sign-up converts the type to owner).
  *   partner → every tab, every module (Batch 80, Creator Partner
  *            program — partners work with the full toolset; the type
  *            rides this same registry so admin-configured defaults +
@@ -41,6 +44,15 @@ const PORTAL_TABS = [
   // renters stay on their factory three (a general AI assistant with
   // site tools is the operator's surface, like the SOUL page).
   'assistant',
+  // Batch 194: Training (the learning section — short module videos +
+  // transcripts, managed from Admin) and Packages (plan sign-up via
+  // the shared checkout engine). Owner + partner factory defaults
+  // gain 'training' only (see FACTORY_DEFAULTS below — the slice is
+  // no longer a bare PORTAL_TABS.slice() for tabs); 'packages' is a
+  // student-tier surface. Students get exactly [training, packages];
+  // renters keep their factory three, untouched.
+  'training',
+  'packages',
   'website',
   'changes',
   'forms',
@@ -70,6 +82,8 @@ const PORTAL_TABS = [
 
 const TAB_LABELS = {
   assistant: 'Assistant',
+  training: 'Training',
+  packages: 'Packages',
   website: 'Website',
   changes: 'Changes',
   forms: 'Forms',
@@ -87,7 +101,7 @@ const TAB_LABELS = {
   wordpress: 'WordPress',
 };
 
-const USER_TYPES = ['owner', 'renter', 'partner'];
+const USER_TYPES = ['owner', 'renter', 'partner', 'student'];
 
 // ------------------------------------------------------------- modules
 const PORTAL_MODULES = MODULE_TYPES.slice();
@@ -96,16 +110,26 @@ const MODULE_LABELS = Object.fromEntries(
 );
 
 // ------------------------------------------------------- factory defaults
+// Batch 194: owner/partner gain 'training' but NOT 'packages' (owners
+// manage plans on Billing; Packages is the student sign-up surface).
+// Their tab lists below are exactly the pre-194 lists plus 'training'
+// in PORTAL_TABS order — every pre-existing entry keeps its place.
+// Student: exactly [training, packages], no site modules. On a
+// completed package sign-up the type flips student → owner
+// (server/studentConversion.js).
+const OWNER_TIER_TABS = PORTAL_TABS.filter((t) => t !== 'packages');
 const FACTORY_DEFAULTS = {
   tabs: {
-    owner: PORTAL_TABS.slice(),
+    owner: OWNER_TIER_TABS.slice(),
     renter: ['website', 'modules', 'rentals'],
-    partner: PORTAL_TABS.slice(),
+    partner: OWNER_TIER_TABS.slice(),
+    student: ['training', 'packages'],
   },
   modules: {
     owner: PORTAL_MODULES.slice(),
     renter: ['calltracking'],
     partner: PORTAL_MODULES.slice(),
+    student: [],
   },
 };
 
@@ -226,10 +250,15 @@ function resolveTypeDefaults(raw) {
 /** Sanitize an admin-submitted defaults payload for storage. */
 function sanitizeTypeDefaults(input) {
   const resolved = resolveTypeDefaults(input);
-  return {
-    owner: { tabs: resolved.tabs.owner, modules: resolved.modules.owner },
-    renter: { tabs: resolved.tabs.renter, modules: resolved.modules.renter },
-  };
+  // Batch 194: persist EVERY type's slice (partner was previously
+  // dropped on save and silently reset to factory; student is new).
+  // Owner/renter slices carry exactly what resolveTypeDefaults
+  // produced for them before — no content change for those types.
+  const out = {};
+  for (const type of USER_TYPES) {
+    out[type] = { tabs: resolved.tabs[type], modules: resolved.modules[type] };
+  }
+  return out;
 }
 
 // ------------------------------------------- configured defaults (cached)

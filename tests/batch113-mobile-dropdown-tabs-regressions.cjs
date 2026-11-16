@@ -4,9 +4,11 @@
  * Batch 153 note: Admin gains the "Design agent" tab (the editable
  * design-type catalog feeding the New design job popup), so the
  * pinned Admin tab count rotates 18 -> 19 in this suite.
+ * Batch 194 note: Admin gains the "Training" tab (learning-module
+ * management), so the pinned Admin tab count rotates 19 -> 20.
  *
  * Ely's order 2026-11-01, from his phone screenshot of Platform
- * admin: the 19 section pills (Overview … Audit) wrap into a wall
+ * admin: the 20 section pills (Overview … Audit) wrap into a wall
  * that eats half the mobile screen. Site wide in the staff app,
  * mobile only: every pill-style SECTION tab bar becomes a single
  * dropdown on phones showing the active section; choosing an entry
@@ -29,7 +31,7 @@
  * exists and no bar is ever hidden (the select is JS-built and
  * the hiding selector requires the JS-set class).
  *
- * Treated bars (census in the batch report): #admin-tabs (19,
+ * Treated bars (census in the batch report): #admin-tabs (20,
  * hash), #settings-tabs (17, hash), #billing-tabs (4, hash),
  * #o-tabs (3, local). Deliberately NOT treated: #auth-tabs — a
  * two-option Log in/Register mode toggle on the sign-in card, not
@@ -124,11 +126,11 @@ function group(name, n) {
     const { census } = require(path.join(root, 'scripts', 'xss-census.cjs'));
     const cz = census();
     // Batch 156 rotation: census 450 -> 453 (+1 STATIC +1 ESCAPED +1 SAFE in app.js — the fingerprint surfaces), safe classes 336 -> 339, RAW 78 / IDENT 36 and the 114-entry reviewed set unchanged; baseline regenerated. Batch 161 rotation: census 453 -> 470 (+17 audited Assistant-surface sinks in app.js/portal.js, pairwise multiset-proven vs the 159 census — see batch103 narrative), safe classes 339 -> 351, RAW 81 / IDENT 38, reviewed set 119 entries; baseline regenerated.
-    assert.deepEqual(cz.summary, { total: 514, STATIC: 192, ESCAPED: 49, SAFE: 81, BUILDER: 64, IDENT: 41, RAW: 87 }, 'SEC-13 census summary unchanged');
+    assert.deepEqual(cz.summary, { total: 518, STATIC: 193, ESCAPED: 49, SAFE: 81, BUILDER: 64, IDENT: 43, RAW: 88 }, 'SEC-13 census summary unchanged');
     n += 1;
     const multi = cz.sinks.map((s) => `${s.file}|${s.kind}|${s.snippet}`).sort();
     const sha = crypto.createHash('sha256').update(multi.join('\n')).digest('hex');
-    assert.equal(sha, '1800466848dc1bdee7372a419f9a7c3e4f68eb5be637719a3983506daa50fc22', 'SEC-13 sink multiset byte-identical (Batch 136 finisher: multiset gains exactly the +2 audited STATIC sinks in module-embed.js — booking price-summary clear + esc()-wrapped build; RAW/IDENT multiset unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified; Batch 138 finisher: census 442 -> 446 — +3 audited STATIC + 1 IDENT (micSvg(), a constant SVG string) in chat-embed.js for the voice panel, and one portal.js inbox sink reclassified SAFE -> RAW by the conservative classifier after gaining the ${voiceHtml} interpolation (audited: voiceHtml is composed only of esc()-wrapped values, duration arithmetic and fixed close-state words — no visitor-controlled string reaches it unescaped); RAW 76 -> 77, IDENT 35 -> 36, SAFE 74 -> 73, STATIC 158 -> 161, safe classes 331 -> 333; (file,kind,snippet) multiset diff vs the Batch 149 base = exactly these deltas plus pure line movement in portal.js/chat-embed.js; baseline regenerated; Batch 153: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated');
+    assert.equal(sha, '58e99135e3c58d23e938dd04e7592ffcc28945149d237c7f16f999e46af114fc', 'SEC-13 sink multiset byte-identical (Batch 136 finisher: multiset gains exactly the +2 audited STATIC sinks in module-embed.js — booking price-summary clear + esc()-wrapped build; RAW/IDENT multiset unchanged; Batch 137 finisher: +1 audited SAFE sink in portal.js (qualifying-question rows render — numeric indices + esc()-wrapped question text), census 441 -> 442, SAFE 73 -> 74, reviewed RAW/IDENT content unchanged (12 portal.js positions shifted +127, pure line movement, snippet-verified; Batch 138 finisher: census 442 -> 446 — +3 audited STATIC + 1 IDENT (micSvg(), a constant SVG string) in chat-embed.js for the voice panel, and one portal.js inbox sink reclassified SAFE -> RAW by the conservative classifier after gaining the ${voiceHtml} interpolation (audited: voiceHtml is composed only of esc()-wrapped values, duration arithmetic and fixed close-state words — no visitor-controlled string reaches it unescaped); RAW 76 -> 77, IDENT 35 -> 36, SAFE 74 -> 73, STATIC 158 -> 161, safe classes 331 -> 333; (file,kind,snippet) multiset diff vs the Batch 149 base = exactly these deltas plus pure line movement in portal.js/chat-embed.js; baseline regenerated; Batch 153: census 448 -> 450 — +1 BUILDER +1 RAW in app.js, both the Admin Design-agent editor (rows build — every interpolated value esc()-wrapped; panel shell classified RAW by the conservative classifier, audited: its interpolations are a fixed literal seed note and the numeric limits only, no staff- or visitor-controlled string reaches it unescaped); BUILDER 59 -> 60, RAW 77 -> 78, safe classes 335 -> 336; remaining app.js RAW/IDENT movement is pure line shift from the editor + popup insertions, (file,kind,snippet) multiset diff vs the Batch 139 base = exactly these two sinks; baseline regenerated');
     n += 1;
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const BASELINE = new Set(require(path.join(root, 'tests', 'batch103-xss-baseline.json')));
@@ -274,11 +276,12 @@ function group(name, n) {
     eq(st.barHeight, 0, `pill bar takes no vertical space @${w}`);
     eq(st.selDisplay, 'block', `dropdown visible on phone @${w}`);
     ok(st.selHeight >= 48, `dropdown touch height >= 48px @${w} (got ${st.selHeight})`);
-    eq(st.pillCount, 19, `admin bar still carries all 19 pills in the DOM @${w}`);
-    eq(st.selOptions.length, 19, `dropdown lists all 19 sections @${w}`);
+    eq(st.pillCount, 20, `admin bar still carries all 20 pills in the DOM @${w}`);
+    eq(st.selOptions.length, 20, `dropdown lists all 20 sections @${w}`);
     eq(st.selOptions[0], 'overview:Overview', `first dropdown entry is Overview @${w}`);
     ok(st.selOptions.includes('gbp:Google Business'), 'dropdown includes Google Business');
     ok(st.selOptions.includes('audit:Audit'), 'dropdown includes Audit');
+    ok(st.selOptions.includes('training:Training'), 'dropdown includes Training (Batch 194)');
     eq(st.selValue, 'overview', `current section preselected @${w}`);
     ok(st.noOverflow, `no page-level horizontal overflow @${w}`);
     const gap = await page.evaluate(() => {
@@ -379,7 +382,7 @@ function group(name, n) {
     st = await page.evaluate(barState, '#admin-tabs');
     eq(st.barDisplay, 'flex', `pill row renders as before @${w}`);
     ok(st.barHeight > 0, `pill row takes its usual space @${w}`);
-    eq(st.pillCount, 19, `all 19 pills present @${w}`);
+    eq(st.pillCount, 20, `all 20 pills present @${w}`);
     eq(st.selDisplay, 'none', `dropdown never appears @${w}`);
     // And the pills themselves still route.
     await page.evaluate(() => document.querySelector('#admin-tabs button[data-tab="audit"]').click());

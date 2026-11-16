@@ -1587,6 +1587,19 @@ async function dispatchWebhookEvent(event, deps = {}) {
   const obj = event.data && event.data.object;
 
   if ((type === 'checkout.session.completed' || type === 'checkout.session.async_payment_succeeded') && obj) {
+    // Batch 194: a STUDENT portal user who completes a package
+    // (subscription) checkout converts to owner. The hook resolves
+    // the buyer from the session's stamped metadata and is fully
+    // best-effort / idempotent — it runs before the Stripe retrieve
+    // below so the conversion lands even if a later step in this
+    // dispatch needs a retry (redelivery then no-ops).
+    if (obj.mode === 'subscription') {
+      try {
+        await require('./studentConversion').onCheckoutCompleted(obj);
+      } catch (e) {
+        console.warn('[billing] student conversion hook:', e.message);
+      }
+    }
     if (obj.mode === 'payment') {
       await fulfillCreditsCheckout(obj);
       return;
@@ -1638,6 +1651,15 @@ async function dispatchWebhookEvent(event, deps = {}) {
 
   if (type.startsWith('customer.subscription.') && obj) {
     await syncSubscription(obj);
+    // Batch 194: subscription reaching active/trialing for a billing
+    // user whose portal account is a STUDENT converts them to owner
+    // (covers plan starts with no checkout session). Best-effort,
+    // idempotent — see server/studentConversion.js.
+    try {
+      await require('./studentConversion').onSubscriptionActive(obj);
+    } catch (e) {
+      console.warn('[billing] student conversion hook:', e.message);
+    }
     // Batch 119: suspension transitions (server/subscriptionSuspension.js).
     // Status 'unpaid' means Stripe's automatic retries are exhausted —
     // the account suspends (serve-time 503 on its sites, portal narrowed

@@ -8898,6 +8898,7 @@ async function pageAdmin(param) {
     ['partners', 'Partners'],
     ['approvals', 'Approvals'],
     ['access', 'Portal access'],
+    ['training', 'Training'],
     ['workspaces', 'Workspaces'],
     ['payments', 'Payments'],
     ['upsell', 'Upsell tips'],
@@ -8940,6 +8941,7 @@ async function pageAdmin(param) {
         else if (tab === 'partners') await renderAdminPartners(body);
         else if (tab === 'approvals') await renderAdminApprovals(body);
         else if (tab === 'access') await renderAdminPortalAccess(body);
+  else if (tab === 'training') await renderAdminTraining(body);
         else if (tab === 'workspaces') await renderAdminWorkspaces(body);
         else if (tab === 'payments') await renderAdminPayments(body);
         else if (tab === 'upsell') await renderAdminUpsellTips(body);
@@ -9369,6 +9371,8 @@ function openAdminPortalUserAccess(u, meta) {
         <select name="user_type" id="admin-portal-type">
           <option value="owner" ${u.userType === 'owner' ? 'selected' : ''}>Owner</option>
           <option value="renter" ${u.userType === 'renter' ? 'selected' : ''}>Renter</option>
+          <option value="partner" ${u.userType === 'partner' ? 'selected' : ''}>Partner</option>
+          <option value="student" ${u.userType === 'student' ? 'selected' : ''}>Student</option>
         </select></div>
       <div><label>Portal tabs this user can open</label>
         <div class="stack" style="gap:0.25rem">${checklist(tabs, 'tab_')}</div>
@@ -9457,7 +9461,15 @@ function openAdminPortalUserAccess(u, meta) {
    (Users tab → Access) still win per item. */
 async function renderAdminPortalAccess(el) {
   const data = (await api.adminPortalAccessDefaults()).data || {};
-  const defaults = data.defaults || { owner: { tabs: [], modules: [] }, renter: { tabs: [], modules: [] } };
+  const defaults = data.defaults || {
+    owner: { tabs: [], modules: [] },
+    renter: { tabs: [], modules: [] },
+    partner: { tabs: [], modules: [] },
+    student: { tabs: [], modules: [] },
+  };
+  for (const t of ['owner', 'renter', 'partner', 'student']) {
+    if (!defaults[t]) defaults[t] = { tabs: [], modules: [] };
+  }
   const factory = data.factory || defaults;
   const tabList = data.tabs || [];
   const modList = data.modules || [];
@@ -9497,18 +9509,21 @@ async function renderAdminPortalAccess(el) {
         <div class="msg" id="pa-msg"></div>
       </div>
     </div>
-    ${group('owner', 'Owner defaults', 'Site owners. Factory: every tab, every module.')}
-    ${group('renter', 'Renter defaults', 'Site tenants. Factory: Website / Modules / Rentals tabs, Call Tracking module only.')}`;
+    ${group('owner', 'Owner defaults', 'Site owners. Factory: every tab except Packages, every module.')}
+    ${group('renter', 'Renter defaults', 'Site tenants. Factory: Website / Modules / Rentals tabs, Call Tracking module only.')}
+    ${group('partner', 'Partner defaults', 'Creator partners. Factory: every tab except Packages, every module.')}
+    ${group('student', 'Student defaults', 'Not signed up yet. Factory: Training + Packages tabs only, no modules. Signing up converts a student to Owner.')}`;
   const collect = (src) => {
     const pick = (type, prefix, list) =>
       list.filter((t) => {
         const box = el.querySelector(`[data-pa="${type}-${prefix}-${t.key}"]`);
         return src === 'dom' ? !!(box && box.checked) : (src[type][prefix === 'tab' ? 'tabs' : 'modules'] || []).includes(t.key);
       }).map((t) => t.key);
-    return {
-      owner: { tabs: pick('owner', 'tab', tabList), modules: pick('owner', 'mod', modList) },
-      renter: { tabs: pick('renter', 'tab', tabList), modules: pick('renter', 'mod', modList) },
-    };
+    const out = {};
+    for (const type of ['owner', 'renter', 'partner', 'student']) {
+      out[type] = { tabs: pick(type, 'tab', tabList), modules: pick(type, 'mod', modList) };
+    }
+    return out;
   };
   $('#pa-save').onclick = () =>
     safeRun($('#pa-msg'), async () => {
@@ -9517,13 +9532,144 @@ async function renderAdminPortalAccess(el) {
       $('#pa-msg').className = 'msg ok';
     });
   $('#pa-factory').onclick = () => {
-    if (!confirm('Restore the factory defaults for both types? Per-user overrides are not touched.')) return;
+    if (!confirm('Restore the factory defaults for all types? Per-user overrides are not touched.')) return;
     safeRun($('#pa-msg'), async () => {
       await api.adminUpdatePortalAccessDefaults(factory);
       toast('Factory defaults restored', 'ok');
       pageAdmin('access');
     });
   };
+}
+
+/* Batch 194 — Admin → Training: manage the portal learning catalog
+   (title, video URLs, transcript, order, publish). Unpublished
+   modules never appear in the portal Training tab. */
+function openTrainingModuleEditor(mod, onSaved) {
+  const isNew = !mod;
+  const m0 = mod || { title: '', videoUrl: '', videoMobileUrl: '', transcript: '', published: true };
+  const m = openModal({
+    title: isNew ? 'Add training module' : 'Edit training module',
+    wide: true,
+    body: `
+      <div class="field"><label for="tm-title">Title</label><input id="tm-title" type="text" value="${esc(m0.title || '')}" /></div>
+      <div class="row">
+        <div class="field"><label for="tm-video">Video URL (16:9)</label><input id="tm-video" type="text" value="${esc(m0.videoUrl || '')}" placeholder="/training/01-welcome.mp4" /></div>
+        <div class="field"><label for="tm-video-m">Video URL (mobile, optional)</label><input id="tm-video-m" type="text" value="${esc(m0.videoMobileUrl || '')}" placeholder="/training-mobile/01-welcome.mp4" /></div>
+      </div>
+      <div class="field"><label for="tm-transcript">Transcript</label><textarea id="tm-transcript" rows="8">${esc(m0.transcript || '')}</textarea></div>
+      <label style="font-weight:normal"><input id="tm-published" type="checkbox" ${m0.published ? 'checked' : ''} /> Published (visible in the portal)</label>
+      <div class="msg" id="tm-msg"></div>`,
+    buttons: [
+      { label: 'Cancel' },
+      {
+        label: isNew ? 'Add module' : 'Save changes',
+        cls: 'primary',
+        onClick: async (mm) => {
+          const body = {
+            title: $('#tm-title', mm.el).value.trim(),
+            videoUrl: $('#tm-video', mm.el).value.trim(),
+            videoMobileUrl: $('#tm-video-m', mm.el).value.trim(),
+            transcript: $('#tm-transcript', mm.el).value,
+            published: $('#tm-published', mm.el).checked,
+          };
+          const msg = $('#tm-msg', mm.el);
+          if (!body.title) {
+            setMsg(msg, 'Title is required.', 'err');
+            return false;
+          }
+          try {
+            if (isNew) await api.adminCreateTrainingModule(body);
+            else await api.adminUpdateTrainingModule(m0.id, body);
+            toast(isNew ? 'Module added' : 'Module saved', 'ok');
+            mm.close();
+            if (onSaved) onSaved();
+          } catch (e) {
+            setMsg(msg, errText(e), 'err');
+            return false;
+          }
+        },
+      },
+    ],
+  });
+  return m;
+}
+
+async function renderAdminTraining(el) {
+  const data = (await api.adminTrainingModules()).data || {};
+  const modules = data.modules || [];
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-b">
+        <p class="hint">The portal <strong>Training</strong> tab shows published modules in this order. Videos are served from the URLs below (seeded files live under <code>/training/</code> and <code>/training-mobile/</code>).</p>
+        <div class="row actions" style="margin-top:0.75rem">
+          <button class="btn" type="button" id="tm-add">Add module</button>
+        </div>
+        <div class="msg" id="tm-list-msg"></div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:1rem">
+      <div class="panel-b">
+        ${modules.length ? '' : '<p class="hint">No training modules yet.</p>'}
+        ${modules
+          .map(
+            (mod, i) => `
+          <div class="row" style="align-items:center;gap:0.5rem;padding:0.5rem 0;border-bottom:1px solid var(--line, #e5e5e5)">
+            <span class="hint" style="min-width:2rem">#${i + 1}</span>
+            <strong style="flex:1">${esc(mod.title)}</strong>
+            <span class="hint">${mod.published ? 'Published' : 'Hidden'}</span>
+            <button class="btn ghost small" type="button" data-tm-up="${mod.id}" ${i === 0 ? 'disabled' : ''}>↑</button>
+            <button class="btn ghost small" type="button" data-tm-down="${mod.id}" ${i === modules.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="btn ghost small" type="button" data-tm-toggle="${mod.id}">${mod.published ? 'Unpublish' : 'Publish'}</button>
+            <button class="btn ghost small" type="button" data-tm-edit="${mod.id}">Edit</button>
+            <button class="btn ghost small" type="button" data-tm-del="${mod.id}">Delete</button>
+          </div>`
+          )
+          .join('')}
+      </div>
+    </div>`;
+  const rerender = () => pageAdmin('training');
+  const move = async (id, dir) => {
+    const ids = modules.map((x) => x.id);
+    const idx = ids.indexOf(id);
+    const swap = idx + dir;
+    if (idx < 0 || swap < 0 || swap >= ids.length) return;
+    [ids[idx], ids[swap]] = [ids[swap], ids[idx]];
+    await safeRun($('#tm-list-msg'), async () => {
+      await api.adminReorderTrainingModules(ids);
+      rerender();
+    });
+  };
+  $('#tm-add').onclick = () => openTrainingModuleEditor(null, rerender);
+  el.querySelectorAll('[data-tm-up]').forEach((b) => (b.onclick = () => move(Number(b.dataset.tmUp), -1)));
+  el.querySelectorAll('[data-tm-down]').forEach((b) => (b.onclick = () => move(Number(b.dataset.tmDown), 1)));
+  el.querySelectorAll('[data-tm-toggle]').forEach(
+    (b) =>
+      (b.onclick = () =>
+        safeRun($('#tm-list-msg'), async () => {
+          const mod = modules.find((x) => x.id === Number(b.dataset.tmToggle));
+          await api.adminUpdateTrainingModule(mod.id, { published: !mod.published });
+          rerender();
+        }))
+  );
+  el.querySelectorAll('[data-tm-edit]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        const mod = modules.find((x) => x.id === Number(b.dataset.tmEdit));
+        openTrainingModuleEditor(mod, rerender);
+      })
+  );
+  el.querySelectorAll('[data-tm-del]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        const mod = modules.find((x) => x.id === Number(b.dataset.tmDel));
+        if (!confirm(`Delete training module “${mod.title}”? Portal users will no longer see it.`)) return;
+        safeRun($('#tm-list-msg'), async () => {
+          await api.adminDeleteTrainingModule(mod.id);
+          toast('Module deleted', 'ok');
+          rerender();
+        });
+      })
+  );
 }
 
 async function renderAdminPortalUsersPanel(el) {
