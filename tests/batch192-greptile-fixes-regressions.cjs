@@ -29,6 +29,21 @@
  *   #11  In a cold child process whose first workspace touch is a
  *        {create:false} read (which caches the readonly handle),
  *        generateStandaloneBackup completes without SQLITE_READONLY.
+ *   #7   (detailed A, added 2026-11-16) vendor_design tokens are
+ *        barred from design.setContact / design.emailQuestions /
+ *        design.emailDelivery on MCP (policy + real dispatch) and
+ *        REST (policy + real requireWorkspace guard), while the
+ *        legitimate design surface stays allowed and standard
+ *        tokens are unaffected.
+ *   #8   (detailed C) two concurrent resetMemberPassword calls with
+ *        one token: exactly one succeeds, the loser gets
+ *        RESET_INVALID, and the winner's password is the one set.
+ *   #9   (detailed D) authorize.html re-GETs the original /authorize
+ *        URL after a mid-flow portal login (fresh user-bound park via
+ *        full revalidation — the pre-auth park is never resurrected);
+ *        flow pins: sign-in mid-flow reaches consent and mints a
+ *        code, login alone still yields NO_PENDING, and a park bound
+ *        to a different user still 403s PENDING_USER_MISMATCH.
  *
  * Harness: in-process on temp platform + tenant DBs (batch191
  * pattern); #11 spawns a child process for a genuinely cold handle
@@ -489,6 +504,301 @@ const norm = (p) => '+1' + p;
       child.status === 0 && /GEN_OK/.test(childOut),
       childOut.slice(-400)
     );
+  }
+
+  /* ============ #7 (detailed A) — vendor tokens cannot send email ============ */
+  console.log('batch192 #7: vendor_design tokens are barred from the design contact/email tools (MCP + REST)');
+  {
+    const vt = require(path.join(root, 'server/vendorTools.js'));
+    check('#7: MCP policy denies design.setContact for vendor tokens', vt.vendorToolAllowed('design.setContact') === false);
+    check('#7: MCP policy denies design.emailQuestions for vendor tokens', vt.vendorToolAllowed('design.emailQuestions') === false);
+    check('#7: MCP policy denies design.emailDelivery for vendor tokens', vt.vendorToolAllowed('design.emailDelivery') === false);
+    check(
+      '#7: legitimate design tools stay allowed for vendor tokens',
+      vt.vendorToolAllowed('design.deliver') === true && vt.vendorToolAllowed('design.list') === true && vt.vendorToolAllowed('website.edit') === true
+    );
+    check(
+      '#7: REST policy denies the three design contact/email suffixes',
+      vt.vendorRestAllowed('POST', '/design/42/contact') === false &&
+        vt.vendorRestAllowed('POST', '/design/42/email-questions') === false &&
+        vt.vendorRestAllowed('POST', '/design/42/email-delivery') === false
+    );
+    check(
+      '#7: REST policy keeps legitimate design writes allowed',
+      vt.vendorRestAllowed('POST', '/design/jobs') === true && vt.vendorRestAllowed('POST', '/websites/40/preview') === true
+    );
+
+    // Dispatch level — the real MCP gate (batch103 pattern).
+    const workspaceMod = require(path.join(root, 'server/workspace.js'));
+    const made7 = await workspaceMod.createUserWithWorkspace({
+      email: 'vendor-b192@example.com',
+      password: 'vendor-b192-pass',
+      name: 'Vendor B192',
+      workspaceName: 'Batch192 Vendor',
+    });
+    const ws7 = Number(made7.workspaceId);
+    const mcp = require(path.join(root, 'server/mcp.js'));
+    const vctx = { tokenClass: 'vendor_design', tokenPrefix: 'ws_vendor_b192' };
+    for (const t of ['design.setContact', 'design.emailQuestions', 'design.emailDelivery']) {
+      const r = await mcp.callTool(ws7, t, { id: 1, jobId: 1, email: 'x@example.com' }, vctx);
+      check(`#7: MCP dispatch refuses ${t} for a vendor token`, !!(r && r.ok === false && r.error === 'VENDOR_TOKEN_FORBIDDEN'), JSON.stringify(r).slice(0, 200));
+    }
+    const okRes7 = await mcp.callTool(ws7, 'settings.get', {}, vctx);
+    check('#7: vendor token can still do allowed work (settings.get)', !!(okRes7 && okRes7.ok === true), JSON.stringify(okRes7).slice(0, 200));
+    const stdRes7 = await mcp.callTool(ws7, 'design.setContact', { id: 999999, email: 'x@example.com' }, { tokenClass: 'standard' });
+    check(
+      '#7: standard token is NOT vendor-refused for design.setContact',
+      !(stdRes7 && stdRes7.error === 'VENDOR_TOKEN_FORBIDDEN'),
+      JSON.stringify(stdRes7).slice(0, 200)
+    );
+
+    // REST level — the real requireWorkspace guard (batch168 pattern).
+    const { hashToken } = require(path.join(root, 'server/workspace.js'));
+    const rawVendor7 = 'ws_vendor_b192_rest_fixture';
+    await query(
+      'INSERT INTO workspace_tokens (workspace_id, lead_id, token_hash, token_prefix, token_class) VALUES (:ws, NULL, :h, :p, :c)',
+      { ws: ws7, h: hashToken(rawVendor7), p: 'ws_vendor', c: 'vendor_design' }
+    );
+    const mw7 = require(path.join(root, 'server/middleware.js'));
+    const runMw7 = (method, p) =>
+      new Promise((resolve) => {
+        const req = { headers: { authorization: `Bearer ${rawVendor7}` }, method, path: p, session: null };
+        const res = {
+          statusCode: 200,
+          body: null,
+          status(c) {
+            this.statusCode = c;
+            return this;
+          },
+          json(b) {
+            this.body = b;
+            resolve({ req, res: this, nexted: false });
+            return this;
+          },
+        };
+        mw7.requireWorkspace(req, res, () => resolve({ req, res, nexted: true }));
+      });
+    const deniedRest7 = await runMw7('POST', '/design/42/email-delivery');
+    check(
+      '#7: REST guard refuses vendor POST /design/:id/email-delivery with VENDOR_TOKEN_FORBIDDEN',
+      deniedRest7.nexted === false && deniedRest7.res.statusCode === 403 && !!(deniedRest7.res.body && deniedRest7.res.body.code === 'VENDOR_TOKEN_FORBIDDEN'),
+      JSON.stringify(deniedRest7.res.body)
+    );
+    const allowedRest7 = await runMw7('POST', '/design/jobs');
+    check('#7: REST guard still allows vendor POST /design/jobs', allowedRest7.nexted === true);
+  }
+
+  /* ============ #8 (detailed C) — member reset token race ============ */
+  console.log('batch192 #8: two concurrent member password resets with one token — exactly one wins');
+  {
+    const sm = require(path.join(root, 'server/siteModules.js'));
+    const db = openWorkspaceDb(19208);
+    const LEAD8 = 19208;
+    db.prepare(`INSERT INTO leads (id, business_name, email, status) VALUES (?, ?, ?, 'customer')`).run(LEAD8, 'Reset Race Biz', 'race@example.com');
+    await sm.signupMember(db, LEAD8, { name: 'Race Member', email: 'race@example.com', password: 'password123' });
+    const rr8 = sm.requestMemberReset(db, LEAD8, 'race@example.com');
+    check('#8: fixture reset token issued', !!(rr8 && rr8.resetToken));
+    const attempts8 = await Promise.allSettled([
+      sm.resetMemberPassword(db, LEAD8, rr8.resetToken, 'winner-pass-1'),
+      sm.resetMemberPassword(db, LEAD8, rr8.resetToken, 'loser-pass-12'),
+    ]);
+    const wins8 = attempts8.filter((a) => a.status === 'fulfilled');
+    const losses8 = attempts8.filter((a) => a.status === 'rejected');
+    check(
+      '#8: exactly one of two concurrent resets with one token succeeds',
+      wins8.length === 1 && losses8.length === 1,
+      JSON.stringify(attempts8.map((a) => a.status))
+    );
+    check(
+      '#8: the loser is refused RESET_INVALID',
+      losses8.length === 1 && !!(losses8[0].reason && losses8[0].reason.code === 'RESET_INVALID'),
+      String(losses8[0] && losses8[0].reason && losses8[0].reason.code)
+    );
+    const winnerPw8 = attempts8[0].status === 'fulfilled' ? 'winner-pass-1' : 'loser-pass-12';
+    const loserPw8 = attempts8[0].status === 'fulfilled' ? 'loser-pass-12' : 'winner-pass-1';
+    await checkAsync('#8: the winning password is the one that sticks', async () => {
+      const li = await sm.loginMember(db, LEAD8, { email: 'race@example.com', password: winnerPw8 });
+      assert.ok(li.session && li.session.token);
+      await assert.rejects(
+        sm.loginMember(db, LEAD8, { email: 'race@example.com', password: loserPw8 }),
+        (e) => e.code === 'INVALID_CREDENTIALS'
+      );
+    });
+  }
+
+  /* ============ #9 (detailed D) — OAuth sign-in mid-flow reaches consent ============ */
+  console.log('batch192 #9: signing in mid-authorization reaches consent; cross-user parks still 403');
+  {
+    // Source pin: the authorize page re-runs the original /authorize
+    // request after a successful login (fresh, user-bound park via
+    // full revalidation) instead of going straight to refresh().
+    const authzHtml = fs.readFileSync(path.join(root, 'public/authorize.html'), 'utf8');
+    const loginAt = authzHtml.indexOf("api('/api/v1/portal/login'");
+    const reauthAt = authzHtml.indexOf('window.location.href', loginAt);
+    const refreshAt = authzHtml.indexOf('await refresh()', loginAt);
+    check(
+      '#9: authorize.html re-GETs the original /authorize URL after login, before refresh()',
+      loginAt > -1 && reauthAt > loginAt && refreshAt > reauthAt && authzHtml.slice(reauthAt, reauthAt + 120).includes("redirect: 'manual'"),
+      `login=${loginAt} reauth=${reauthAt} refresh=${refreshAt}`
+    );
+
+    // Flow level: a minimal app mounting the REAL portal + OAuth
+    // session routers behind the portal session cookie, exactly as
+    // server.js mounts them (in-memory session store stands in for
+    // the MySQL store; regeneration semantics are express-session's).
+    const express = require('express');
+    const session = require('express-session');
+    const bcrypt = require('bcryptjs');
+    const crypto = require('node:crypto');
+    const workspaceMod9 = require(path.join(root, 'server/workspace.js'));
+    const made9 = await workspaceMod9.createUserWithWorkspace({
+      email: 'oauth-b192@example.com',
+      password: 'oauth-b192-pass',
+      name: 'OAuth B192',
+      workspaceName: 'Batch192 OAuth',
+    });
+    const ws9 = Number(made9.workspaceId);
+    await query('UPDATE users SET is_super_admin = 1 WHERE id = :id', { id: Number(made9.userId) }); // paid plan for consent
+    const db9 = openWorkspaceDb(ws9);
+    db9.prepare(`INSERT INTO leads (id, business_name, email, status) VALUES (19209, 'OAuth Biz', 'oauth-b192@example.com', 'customer')`).run();
+    const portalHash = bcrypt.hashSync('portal-pass-192', 12);
+    const insA = await query(
+      `INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status)
+       VALUES ('oauth-b192@example.com', :h, :ws, 19209, 'OAuth Biz', 'active')`,
+      { h: portalHash, ws: ws9 }
+    );
+    const userA9 = Number(insA.insertId);
+    const insB = await query(
+      `INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status)
+       VALUES ('oauth-b192-b@example.com', :h, :ws, 19209, 'OAuth Biz', 'active')`,
+      { h: portalHash, ws: ws9 }
+    );
+    const userB9 = Number(insB.insertId);
+    check('#9: two distinct portal users seeded in one workspace', userA9 > 0 && userB9 > 0 && userA9 !== userB9, `${userA9}/${userB9}`);
+
+    const oauth = require(path.join(root, 'server/mcpOAuth.js'));
+    const registered = await oauth.registerClient({
+      redirect_uris: ['http://127.0.0.1:8911/callback'],
+      client_name: 'B192 Test Client',
+    });
+    const challenge = crypto.createHash('sha256').update('b192-verifier').digest('base64url');
+    const authzQuery =
+      `response_type=code&client_id=${encodeURIComponent(registered.client_id)}` +
+      `&redirect_uri=${encodeURIComponent('http://127.0.0.1:8911/callback')}` +
+      `&state=state192&code_challenge=${challenge}&code_challenge_method=S256&scope=mcp`;
+
+    const store9 = new session.MemoryStore();
+    const portalSession9 = session({
+      name: 'bitpype.portal.sid',
+      secret: process.env.SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      store: store9,
+    });
+    const app9 = express();
+    app9.locals.portalIdleMs = 30 * 60 * 60 * 1000;
+    app9.use(express.json());
+    app9.use('/api/v1/portal', portalSession9, require(path.join(root, 'server/routes/portal.js')));
+    app9.use(['/authorize', '/oauth'], portalSession9);
+    app9.use(require(path.join(root, 'server/routes/mcpOAuth.js')).sessionRouter);
+    const server9 = await new Promise((resolve) => {
+      const s = app9.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const base9 = `http://127.0.0.1:${server9.address().port}`;
+    // Tiny cookie jar over fetch.
+    const jar9 = () => {
+      const cookies = new Map();
+      const call = async (method, url, body) => {
+        const res = await fetch(base9 + url, {
+          method,
+          redirect: 'manual',
+          headers: {
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
+            ...(cookies.size ? { Cookie: [...cookies.entries()].map(([k, v]) => `${k}=${v}`).join('; ') } : {}),
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        for (const sc of res.headers.getSetCookie ? res.headers.getSetCookie() : []) {
+          const pair = sc.split(';')[0];
+          const eq = pair.indexOf('=');
+          if (eq > 0) cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+        }
+        const text = await res.text();
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          /* authorize.html */
+        }
+        return { status: res.status, json, text, cookies };
+      };
+      return { call, cookies };
+    };
+    try {
+      const jar = jar9();
+      // 1 — signed-out /authorize parks display-only; pending shows it.
+      const a1 = await jar.call('GET', `/authorize?${authzQuery}`);
+      check('#9: signed-out /authorize serves the consent page', a1.status === 200 && a1.text.includes('panel-login'), `status=${a1.status}`);
+      const p1 = await jar.call('GET', '/oauth/pending');
+      check(
+        '#9: pre-auth park is visible signed-out with no client (sign-in panel state)',
+        p1.status === 200 && !!(p1.json && p1.json.pending) && !p1.json.client,
+        JSON.stringify(p1.json).slice(0, 200)
+      );
+      // 2 — sign in (regenerates the session, destroying the park).
+      const login = await jar.call('POST', '/api/v1/portal/login', { email: 'oauth-b192@example.com', password: 'portal-pass-192' });
+      check('#9: portal login succeeds mid-flow', login.status === 200 && !!(login.json && login.json.ok), JSON.stringify(login.json).slice(0, 200));
+      // 3 — negative control: WITHOUT re-authorizing, the park is gone
+      // (L2 + regeneration intact — the pre-auth park is never revived).
+      const pGone = await jar.call('GET', '/oauth/pending');
+      check(
+        '#9: after login alone, /oauth/pending is NO_PENDING (park destroyed, not resurrected)',
+        pGone.status === 400 && !!(pGone.json && pGone.json.error === 'NO_PENDING'),
+        JSON.stringify(pGone.json).slice(0, 200)
+      );
+      // 4 — the fixed page now re-GETs the original /authorize URL:
+      // full revalidation parks a FRESH request bound to this user.
+      const a2 = await jar.call('GET', `/authorize?${authzQuery}`);
+      check('#9: re-GET /authorize after login re-parks (200)', a2.status === 200, `status=${a2.status}`);
+      const p2 = await jar.call('GET', '/oauth/pending');
+      check(
+        '#9: after re-authorize, /oauth/pending shows the request AND the signed-in client (consent reachable)',
+        p2.status === 200 && !!(p2.json && p2.json.pending && p2.json.client && p2.json.client.email === 'oauth-b192@example.com'),
+        JSON.stringify(p2.json).slice(0, 240)
+      );
+      // 5 — consent completes and returns an authorization code redirect.
+      const consent = await jar.call('POST', '/oauth/consent', { approve: true });
+      check(
+        '#9: consent approves and redirects with a code for the original request',
+        consent.status === 200 &&
+          !!(consent.json && consent.json.redirect && consent.json.redirect.startsWith('http://127.0.0.1:8911/callback?') && consent.json.redirect.includes('code=') && consent.json.redirect.includes('state=state192')),
+        JSON.stringify(consent.json).slice(0, 240)
+      );
+      // 6 — mismatch half: a park bound to user A, presented by a
+      // session authenticated as user B, still 403s. Constructed by
+      // re-pointing the session's portal user in the store (the state
+      // L2 guards against for any non-regenerating auth path).
+      const a3 = await jar.call('GET', `/authorize?${authzQuery}`);
+      check('#9: fresh park for user A established for the mismatch probe', a3.status === 200, `status=${a3.status}`);
+      const rawSid = decodeURIComponent(jar.cookies.get('bitpype.portal.sid') || '');
+      const sid = rawSid.replace(/^s:/, '').split('.')[0];
+      const sessData = await new Promise((resolve, reject) => store9.get(sid, (e, s) => (e ? reject(e) : resolve(s))));
+      check(
+        '#9: mismatch fixture — park is bound to user A in the store',
+        !!(sessData && sessData.oauthPending && Number(sessData.oauthPending.boundPortalUserId) === userA9),
+        JSON.stringify(sessData && sessData.oauthPending).slice(0, 200)
+      );
+      sessData.clientPortalId = userB9;
+      await new Promise((resolve, reject) => store9.set(sid, sessData, (e) => (e ? reject(e) : resolve())));
+      const mismatch = await jar.call('POST', '/oauth/consent', { approve: true });
+      check(
+        '#9: consent by a different user than the park was bound to 403s PENDING_USER_MISMATCH',
+        mismatch.status === 403 && !!(mismatch.json && mismatch.json.error === 'PENDING_USER_MISMATCH'),
+        JSON.stringify(mismatch.json).slice(0, 200)
+      );
+    } finally {
+      await new Promise((resolve) => server9.close(resolve));
+    }
   }
 
   console.log(`\nbatch192: ${passed} passed, ${failures.length} failed`);
