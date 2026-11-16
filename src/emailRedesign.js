@@ -438,7 +438,7 @@ async function interpretClientEmail(
     /* ignore */
   }
 
-  if (!ai.aiConfigured || !ai.aiConfigured(db)) {
+  if (!ai.aiConfiguredRouted || !(await ai.aiConfiguredRouted(db, 'editor'))) {
     return {
       instructions: fallbackInstructions,
       requestKind: fallbackKind,

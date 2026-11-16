@@ -342,7 +342,7 @@ function withTimeout(promise, ms) {
 
 async function visionChat(db, parts, { maxTokens, note, leadId }) {
   const ai = require('./ai');
-  if (!ai.aiConfigured(db)) return null;
+  if (!(await ai.aiConfiguredRouted(db, 'vision'))) return null;
   const call = Promise.resolve()
     .then(() =>
       ai.chat({

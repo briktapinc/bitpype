@@ -6517,7 +6517,7 @@ async function generateSite(db, leadId, opts = {}) {
   // Batch 143: aiConfigured() requires the workspace db — the
   // no-arg call always returned false, so this branch never ran
   // and generation always fell back to deterministic copy.
-  if (ai.aiConfigured(db)) {
+  if (await ai.aiConfiguredRouted(db, 'generation')) {
     try {
       copy = await aiCopy(db, lead, industry, facts);
       aiUsed = true;
@@ -7918,7 +7918,9 @@ async function qaSite(db, websiteId) {
   }
 
   // 11. optional AI QA pass
-  if (ai.aiConfigured(db) && renderOk) {
+  // Batch 192 (#12): routed gate for 'qa' — see aiConfiguredRouted.
+  const aiQaReady = await ai.aiConfiguredRouted(db, 'qa');
+  if (aiQaReady && renderOk) {
     try {
       const promptRow = db.prepare('SELECT body FROM prompts WHERE key = ?').get('qa_website');
       const systemPrompt =
@@ -7954,7 +7956,7 @@ async function qaSite(db, websiteId) {
       check('ai-qa', true, `AI QA skipped (${e.code || e.message}).`);
     }
   } else {
-    check('ai-qa', true, ai.aiConfigured(db) ? 'Skipped (render failed).' : 'Skipped (AI not configured).');
+    check('ai-qa', true, aiQaReady ? 'Skipped (render failed).' : 'Skipped (AI not configured).');
   }
 
   const pass = checks.every((c) => c.pass);

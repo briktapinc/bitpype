@@ -228,7 +228,7 @@ function distillHeuristic(db, { category, summary, event_type }) {
 async function distillWithAi(db, { limit = 30 } = {}) {
   if (!learningEnabled(db)) return { ok: false, reason: 'disabled' };
   ensureTables(db);
-  if (!ai.aiConfigured(db)) return { ok: false, reason: 'ai_not_configured' };
+  if (!(await ai.aiConfiguredRouted(db, 'qa'))) return { ok: false, reason: 'ai_not_configured' };
   const rows = db
     .prepare(
       `SELECT event_type, category, summary, request_kind, created_at

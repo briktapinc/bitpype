@@ -504,7 +504,7 @@ async function generateMonth(
   try {
     const ai = require('./ai');
     if (typeof ai.setDb === 'function') ai.setDb(db);
-    if (ai.aiConfigured && ai.aiConfigured(db)) {
+    if (ai.aiConfiguredRouted && (await ai.aiConfiguredRouted(db, 'generation'))) {
       const res = await ai.chat({
         task: 'generation',
         db,

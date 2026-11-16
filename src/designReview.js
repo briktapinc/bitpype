@@ -209,7 +209,7 @@ async function reviewDesignJob(db, jobId, opts = {}) {
   let aiUsed = false;
   let visionUsed = false;
 
-  if (opts.skipAi !== true && ai.aiConfigured(db)) {
+  if (opts.skipAi !== true && (await ai.aiConfiguredRouted(db, 'qa'))) {
     try {
       const brief = job.brief || {};
       const facts = (brief.verified_facts || [])

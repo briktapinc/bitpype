@@ -4568,8 +4568,11 @@ async function emailDraft(workspaceId, args = {}) {
         code: 'AUTOMATION_PAUSED',
       });
     }
-    const { chat, aiConfigured } = require('../src/ai');
-    if (!aiConfigured(db)) {
+    const { chat, aiConfiguredRouted } = require('../src/ai');
+    // Batch 192 (#12): routed gate for 'email_drafting' (Batch 143
+    // chatbot pattern) — the legacy workspace key is no longer the
+    // only configuration that counts.
+    if (!(await aiConfiguredRouted(db, 'email_drafting'))) {
       throw Object.assign(new Error('AI is not configured: set ai.api_key in Settings.'), {
         code: 'AI_NOT_CONFIGURED',
       });

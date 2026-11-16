@@ -2448,7 +2448,7 @@ async function researchLead(db, id) {
     // src/ai.js is owned by another workstream and may not exist yet.
     try {
       const ai = require('./ai.js');
-      if (ai && typeof ai.aiConfigured === 'function' && ai.aiConfigured(db)) {
+      if (ai && typeof ai.aiConfiguredRouted === 'function' && (await ai.aiConfiguredRouted(db, 'research'))) {
         const res = await ai.chat({
           task: 'research',
           db,

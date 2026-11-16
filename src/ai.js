@@ -56,6 +56,53 @@ function aiConfigured(db) {
   return !!(key && String(key).trim());
 }
 
+/**
+ * Batch 192 (Greptile verification #12): the routed counterpart of
+ * aiConfigured(). aiConfigured() checks ONLY the workspace's legacy
+ * ai.api_key, so callers that pre-gated on it skipped/refused work
+ * even when the function's routed provider was a platform-keyed
+ * profile (Muse / OpenRouter) with a key set — the exact defect
+ * Batch 143 fixed for the chatbot alone. This helper propagates
+ * that fix: the gate passes when EITHER the legacy key is set OR
+ * aiRouting.orderAttempts() for the function yields an attempt
+ * whose provider is actually configured (platform-first Muse /
+ * OpenRouter keys, workspace fallback — the chatbot's resolution).
+ * The OpenAI profile's key IS the legacy workspace key, already
+ * checked above. `fnKey` accepts a routing function key
+ * ('editor', 'qa', …) or a chat task name ('email', 'research', …).
+ * When nothing is configured — or the routing layer is unreachable —
+ * it returns false, exactly as the legacy gate did.
+ */
+async function aiConfiguredRouted(db, fnKey) {
+  if (aiConfigured(db)) return true;
+  if (!db || typeof db.prepare !== 'function') return false;
+  try {
+    const aiRouting = require('../server/aiRouting');
+    const platform = require('../server/platform');
+    const key = aiRouting.TASK_TO_FUNCTION[String(fnKey || '')] || String(fnKey || 'qa');
+    const [route, pMuse, pOr] = await Promise.all([
+      aiRouting.getRoute(key),
+      platform.getPlatformSetting('muse.model_api_key', ''),
+      platform.getPlatformSetting('openrouter.api_key', ''),
+    ]);
+    const wsSetting = (k) => {
+      try {
+        return getSetting(k, '', db);
+      } catch {
+        return '';
+      }
+    };
+    const configured = {
+      muse: !!String(pMuse || wsSetting('muse.model_api_key') || '').trim(),
+      openai: false, // the legacy workspace key — already known unset here
+      openrouter: !!String(pOr || wsSetting('openrouter.api_key') || '').trim(),
+    };
+    return aiRouting.orderAttempts(key, route, configured).some((a) => configured[a.provider]);
+  } catch {
+    return false;
+  }
+}
+
 function fail(code, message, extra) {
   const err = new Error(message);
   err.code = code;
@@ -345,4 +392,4 @@ async function resolveOpenRouterProfile(db) {
   return { apiKey, baseUrl: baseUrl.replace(/\/+$/, ''), model };
 }
 
-module.exports = { chat, aiConfigured, setDb, getSetting };
+module.exports = { chat, aiConfigured, aiConfiguredRouted, setDb, getSetting };

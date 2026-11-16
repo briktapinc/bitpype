@@ -518,7 +518,9 @@ function listSeoSites(db) {
 async function generateSeoProposal(db, websiteId, opts = {}) {
   ensureSeoTables(db);
   const site = getWebsite(db, websiteId);
-  if (!ai.aiConfigured(db)) {
+  // Batch 192 (#12): routed gate — a platform-keyed provider routed
+  // for 'editor' counts as configured, not just the legacy key.
+  if (!(await ai.aiConfiguredRouted(db, 'editor'))) {
     throw fail('AI_NOT_CONFIGURED', 'AI is not configured: set ai.api_key in Settings.');
   }
   const lead = getLead(db, site.lead_id);
