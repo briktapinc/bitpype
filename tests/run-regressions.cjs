@@ -187,6 +187,7 @@ const checks = [
   'batch189-section-variant-wave-regressions',
   'batch191-mysql-like-escape-regressions',
   'batch190-anti-repeat-regressions',
+  'batch192-greptile-fixes-regressions',
   'platform-schema-parity-regressions',
 ];
 if (process.argv.includes('--ocr')) checks.push('knowledge-ocr-check');
