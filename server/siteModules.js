@@ -12867,8 +12867,20 @@ async function resetMemberPassword(db, leadId, rawToken, newPassword) {
   if (!member) {
     throw fail('RESET_INVALID', 'This reset link is invalid or has expired. Please request a new one.', 400);
   }
+  // Batch 192 (Greptile detailed C): claim the token atomically BEFORE
+  // the slow bcrypt hash — mirror of the staff flow's confirmReset
+  // (server/passwordReset.js, Batch 143). The previous shape checked
+  // used_at, awaited bcrypt, and only then marked the token used
+  // unconditionally: two concurrent resets with one token both passed
+  // the check and both set a password. The conditional UPDATE is the
+  // single-use claim; the loser sees RESET_INVALID.
+  const claim = db
+    .prepare("UPDATE site_member_reset_tokens SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL")
+    .run(row.id);
+  if (!(Number(claim.changes || 0) > 0)) {
+    throw fail('RESET_INVALID', 'This reset link is invalid or has expired. Please request a new one.', 400);
+  }
   const hash = await bcrypt.hash(password, 12);
-  db.prepare("UPDATE site_member_reset_tokens SET used_at = datetime('now') WHERE id = ?").run(row.id);
   db.prepare('UPDATE site_members SET password_hash = ? WHERE id = ?').run(hash, member.id);
   // A password reset ends every existing session for this member.
   db.prepare('DELETE FROM site_member_sessions WHERE member_id = ?').run(member.id);
