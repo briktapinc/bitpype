@@ -316,6 +316,7 @@ CREATE TABLE IF NOT EXISTS credit_ledger (
   ref_type TEXT,
   ref_id TEXT,
   stripe_checkout_session_id TEXT,
+  stripe_payment_intent_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(workspace_id, stripe_checkout_session_id)
 );

@@ -406,6 +406,7 @@ async function migrate() {
         ref_type TEXT,
         ref_id TEXT,
         stripe_checkout_session_id TEXT,
+        stripe_payment_intent_id TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE(workspace_id, stripe_checkout_session_id)
       );
@@ -709,6 +710,9 @@ async function migrate() {
     try {
       ensureColumnSqlite(db, 'stripe_events', 'claimed_at', 'TEXT');
       ensureColumnSqlite(db, 'stripe_events', 'completed_at', 'TEXT');
+      // Batch 192 (#5): grants record their payment intent so a
+      // refund clawback can target the refunded payment's OWN grant.
+      ensureColumnSqlite(db, 'credit_ledger', 'stripe_payment_intent_id', 'TEXT');
     } catch {
       /* table may not exist on a bare schema */
     }
@@ -743,11 +747,12 @@ async function migrate() {
             ref_type TEXT,
             ref_id TEXT,
             stripe_checkout_session_id TEXT,
+            stripe_payment_intent_id TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(workspace_id, stripe_checkout_session_id)
           );
-          INSERT INTO credit_ledger_b145 (id, workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, created_at)
-            SELECT id, workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, created_at FROM credit_ledger;
+          INSERT INTO credit_ledger_b145 (id, workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, stripe_payment_intent_id, created_at)
+            SELECT id, workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, stripe_payment_intent_id, created_at FROM credit_ledger;
           DROP TABLE credit_ledger;
           ALTER TABLE credit_ledger_b145 RENAME TO credit_ledger;
           CREATE INDEX IF NOT EXISTS idx_credit_ledger_ws ON credit_ledger(workspace_id, id DESC);
@@ -1031,6 +1036,7 @@ async function migrate() {
         ref_type VARCHAR(60) NULL,
         ref_id VARCHAR(80) NULL,
         stripe_checkout_session_id VARCHAR(120) NULL,
+        stripe_payment_intent_id VARCHAR(120) NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_credit_ledger_session (workspace_id, stripe_checkout_session_id),
         KEY idx_credit_ledger_ws (workspace_id, id)
@@ -1273,6 +1279,8 @@ async function migrate() {
     // Batch 168 (external review F04): see the sqlite block —
     // workspace_members.billing_only marks portal-billing linkage.
     await ensureColumnMysql(conn, 'workspace_members', 'billing_only', 'TINYINT(1) NOT NULL DEFAULT 0');
+    // Batch 192 (#5): see the sqlite block — grant payment intent.
+    await ensureColumnMysql(conn, 'credit_ledger', 'stripe_payment_intent_id', 'VARCHAR(120) NULL');
     await ensureColumnMysql(conn, 'webinars', 'workspace_id', 'BIGINT UNSIGNED NOT NULL DEFAULT 1');
     await ensureColumnMysql(conn, 'webinars', 'lead_id', 'BIGINT UNSIGNED NULL');
     await ensureColumnMysql(conn, 'webinars', 'website_id', 'BIGINT UNSIGNED NULL');

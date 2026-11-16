@@ -392,6 +392,7 @@ CREATE TABLE IF NOT EXISTS credit_ledger (
   ref_type VARCHAR(60) NULL,
   ref_id VARCHAR(80) NULL,
   stripe_checkout_session_id VARCHAR(120) NULL,
+  stripe_payment_intent_id VARCHAR(120) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_credit_ledger_session (workspace_id, stripe_checkout_session_id),
   KEY idx_credit_ledger_ws (workspace_id, id)

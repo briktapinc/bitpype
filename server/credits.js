@@ -56,7 +56,7 @@ async function listLedger(workspaceId, { limit = 40 } = {}) {
   if (!Number.isFinite(wid) || wid < 1) return [];
   return query(
     `SELECT id, workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id,
-            stripe_checkout_session_id, created_at
+            stripe_checkout_session_id, stripe_payment_intent_id, created_at
      FROM credit_ledger
      WHERE workspace_id = :wid
      ORDER BY id DESC
@@ -83,6 +83,7 @@ async function applyDelta(
     refType = null,
     refId = null,
     stripeCheckoutSessionId = null,
+    stripePaymentIntentId = null,
     idempotencyKey = null,
   } = {}
 ) {
@@ -167,8 +168,8 @@ async function applyDelta(
         );
         const info = await conn.execute(
           `INSERT INTO credit_ledger
-             (workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+             (workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, stripe_payment_intent_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
           [
             wid,
             userId != null ? Number(userId) : null,
@@ -178,6 +179,7 @@ async function applyDelta(
             refType ? String(refType).slice(0, 60) : null,
             refId != null ? String(refId).slice(0, 80) : null,
             sessionKey,
+            stripePaymentIntentId ? String(stripePaymentIntentId).slice(0, 120) : null,
           ]
         );
         await conn.commit();
@@ -195,8 +197,8 @@ async function applyDelta(
       );
       const [result] = await conn.execute(
         `INSERT INTO credit_ledger
-           (workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+           (workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, stripe_payment_intent_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
         [
           wid,
           userId != null ? Number(userId) : null,
@@ -206,6 +208,7 @@ async function applyDelta(
           refType ? String(refType).slice(0, 60) : null,
           refId != null ? String(refId).slice(0, 80) : null,
           sessionKey,
+          stripePaymentIntentId ? String(stripePaymentIntentId).slice(0, 120) : null,
         ]
       );
       await conn.commit();
@@ -315,22 +318,28 @@ async function grantFromCheckoutSession(session) {
     return null;
   }
 
+  // Batch 192 (#5): the grant row itself records the payment intent,
+  // so a later refund whose checkout-session lookup fails can still
+  // target THIS payment's grant (see clawbackFromRefundInner).
+  const sessionPi =
+    typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : (session.payment_intent && session.payment_intent.id) || null;
+
   const result = await grant(workspaceId, creditCount, {
     userId,
     reason: 'stripe_purchase',
     refType: 'checkout_session',
     refId: session.id,
     stripeCheckoutSessionId: session.id,
+    stripePaymentIntentId: sessionPi,
   });
 
   if (!result.duplicate) {
     try {
       const amountCents = Number(session.amount_total || 0) || 0;
       const currency = String(session.currency || 'usd').toLowerCase();
-      const pi =
-        typeof session.payment_intent === 'string'
-          ? session.payment_intent
-          : (session.payment_intent && session.payment_intent.id) || null;
+      const pi = sessionPi;
       await query(
         `INSERT INTO payments
            (user_id, stripe_invoice_id, stripe_payment_intent_id, stripe_charge_id,
@@ -429,21 +438,62 @@ async function clawbackFromRefundInner({
     grantRow = rows[0] || null;
   }
   if (!grantRow && paymentIntentId) {
-    const pays = await query(
-      `SELECT description FROM payments WHERE stripe_payment_intent_id = :pi ORDER BY id DESC LIMIT 1`,
+    // Batch 192 (Greptile verification #5): the session-exact path
+    // above failed (billing.js wraps the Stripe session lookup in
+    // catch{/* optional */}). The pre-fix fallback parsed a workspace
+    // id out of the payment description and clawed that workspace's
+    // MOST RECENT stripe_purchase grant — refunding an older pack
+    // clawed the newest pack and poisoned its prior-claw record.
+    // Now the fallback targets the refunded payment's OWN grant,
+    // matched by the payment intent recorded on the grant row
+    // (grantFromCheckoutSession writes stripe_payment_intent_id).
+    const piRows = await query(
+      `SELECT * FROM credit_ledger
+       WHERE reason = 'stripe_purchase' AND delta > 0 AND stripe_payment_intent_id = :pi
+       ORDER BY id DESC LIMIT 1`,
       { pi: String(paymentIntentId) }
     );
-    const desc = pays[0] && pays[0].description ? String(pays[0].description) : '';
-    const m = desc.match(/workspace #(\d+)/i);
-    const wid = m ? Number(m[1]) : 0;
-    if (wid > 0) {
-      const grantRows = await query(
-        `SELECT * FROM credit_ledger
-         WHERE reason = 'stripe_purchase' AND delta > 0 AND workspace_id = :wid
-         ORDER BY id DESC LIMIT 5`,
-        { wid }
+    grantRow = piRows[0] || null;
+    if (!grantRow) {
+      // The specific grant cannot be identified (e.g. a grant that
+      // predates PI recording): claw NOTHING. Flag it for manual
+      // review with a durable zero-delta ledger marker — the same
+      // convention as the stripe_refund_shortfall marker below —
+      // attributed to the workspace named on the payment row (the
+      // description is used ONLY to attribute the marker, never to
+      // select a grant). The marker key is refund-scoped, and the
+      // (workspace_id, stripe_checkout_session_id) uniqueness makes
+      // repeat deliveries no-ops.
+      try {
+        const pays = await query(
+          `SELECT user_id, description FROM payments WHERE stripe_payment_intent_id = :pi ORDER BY id DESC LIMIT 1`,
+          { pi: String(paymentIntentId) }
+        );
+        const desc = pays[0] && pays[0].description ? String(pays[0].description) : '';
+        const m = desc.match(/workspace #(\d+)/i);
+        const wid = m ? Number(m[1]) : 0;
+        if (wid > 0) {
+          const markerRid = refundId ? String(refundId) : `pi:${String(paymentIntentId)}`;
+          await query(
+            `INSERT INTO credit_ledger
+               (workspace_id, user_id, delta, balance_after, reason, ref_type, ref_id, stripe_checkout_session_id, created_at)
+             VALUES (:wid, :uid, 0, 0, 'stripe_refund_unmatched', 'refund', :rid, :sid, ${driver() === 'sqlite' ? "datetime('now')" : 'CURRENT_TIMESTAMP'})`,
+            {
+              wid,
+              uid: pays[0] && pays[0].user_id != null ? Number(pays[0].user_id) : null,
+              rid: markerRid,
+              sid: `refund-unmatched:${String(paymentIntentId)}:${markerRid}`,
+            }
+          );
+        }
+      } catch (markerErr) {
+        // A duplicate marker (repeat delivery) lands here — benign.
+        console.warn('[credits] unmatched-refund marker:', markerErr.message);
+      }
+      console.warn(
+        `[credits] refund clawback: no grant matched payment_intent ${String(paymentIntentId)} — nothing clawed, flagged for manual review`
       );
-      grantRow = (grantRows || []).find((r) => r.stripe_checkout_session_id) || null;
+      return { clawed: false, reason: 'grant_unmatched_manual_review' };
     }
   }
   if (!grantRow) return { clawed: false, reason: 'no_grant' };
