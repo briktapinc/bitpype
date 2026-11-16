@@ -5,7 +5,8 @@
  * All functions take a better-sqlite3 db instance (per CONTRACT.md).
  * Sending NEVER happens without checking, in order:
  *   1. automation_paused setting
- *   2. suppression_list (recipient email)
+ *   2. suppression_list (recipient email) — and, for SMS, the phone
+ *      opt-out / suppression check (server/phoneSuppression.js)
  *   3. cost.max_outreach_per_day daily cap
  *
  * src/ai.js is owned by another workstream: we require it defensively and
@@ -14,6 +15,11 @@
 
 const { getProvider, personalize, isValidEmail, sanitizeEmailHtml, looksLikeHtml } = require('./email');
 const { normalizePhone, isValidPhone, getSmsProvider, resolveSmsSettings, plainSmsBody } = require('./sms');
+// Batch 192 (#15): the shared phone opt-out / suppression check —
+// the same one the missed-call rescue paths honour. Every outbound
+// SMS path consults it; before this batch phoneBlocked was only
+// ever called from inside callRescue.
+const { phoneBlocked } = require('../server/phoneSuppression');
 
 let ai = null;
 try {
@@ -1202,6 +1208,23 @@ function createCampaign(db, { name, templateId, leadIds, ratePerHour, workspaceI
             toPhone: null,
           });
           suppressed++;
+        } else if (phoneBlocked(db, toPhone)) {
+          // Batch 192 (#15): the number opted out (STOP) or sits on
+          // the suppression list — queue it as suppressed at create
+          // time, exactly like the no-phone case, never as sendable.
+          runInsert({
+            campaignId,
+            leadId,
+            toEmail,
+            subject: '(SMS)',
+            body: smsSource || template.body,
+            status: 'suppressed',
+            scheduledAt: null,
+            error: 'sms opt-out / suppression list',
+            channel: 'sms',
+            toPhone,
+          });
+          suppressed++;
         } else {
           let { subject, body } = personalize({ subject: '(SMS)', body: smsSource }, lead, facts, smsExtras);
           body = plainSmsBody(body);
@@ -1337,9 +1360,29 @@ async function processQueue(db) {
       if (channel === 'sms') {
         const phone = normalizePhone(msg.to_phone) || normalizePhone(lead.phone) || normalizePhone(msg.to_email);
         if (!phone) throw new Error('Lead has no phone number');
+        // Batch 192 (#15): send-time opt-out / suppression check for
+        // SMS — the email branch above has always re-checked at send
+        // time; the SMS branch sent unconditionally, so a lead who
+        // texted STOP after queueing still got the campaign text.
+        // A blocked number is marked suppressed (terminal), never
+        // sent and never left to error-loop.
+        if (phoneBlocked(db, phone)) {
+          updateMsg.run('suppressed', null, 'suppressed at send time: sms opt-out / suppression list', msg.id);
+          insertEvent.run(msg.id, 'unsubscribed', 'suppressed: sms opt-out / suppression list');
+          suppressed++;
+          continue;
+        }
+        // Batch 192 (#23): media rides ONLY when the queued message
+        // carries it (createCampaign sets media_url exactly when the
+        // template used a screenshot merge field — explicit MMS
+        // intent). The pre-fix code resolved the lead's current
+        // screenshot whenever media_url was empty, silently
+        // upgrading every plain SMS to an MMS. The one send-time
+        // resolution that remains is for a message already marked
+        // mms_pending (explicit intent) whose media_url is somehow
+        // empty — never for a plain SMS.
         let mediaUrl = msg.media_url ? String(msg.media_url).trim() : '';
-        // Per-lead personalization: if queued without media but template used screenshot vars, resolve now.
-        if (!mediaUrl) {
+        if (!mediaUrl && String(msg.send_mode || '') === 'mms_pending') {
           try {
             const shot =
               require('./siteScreenshots').getCurrentMmsShot(db, msg.lead_id) ||

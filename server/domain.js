@@ -4858,6 +4858,28 @@ async function emailSend(workspaceId, messageId) {
         );
         return { messageId: id, sent: false, suppressed: true, reason: 'no phone number', channel: 'sms' };
       }
+      // Batch 192 (#15): one-off SMS honours the same opt-out /
+      // suppression check as every other outbound SMS path — a lead
+      // who texted STOP (or a suppressed number) is marked suppressed
+      // and NOT sent, mirroring the no-phone outcome above.
+      if (require('./phoneSuppression').phoneBlocked(db, phone)) {
+        db.prepare("UPDATE campaign_messages SET status = 'suppressed', error = ? WHERE id = ?").run(
+          'sms opt-out / suppression list',
+          id
+        );
+        db.prepare('INSERT INTO email_events (message_id, type, detail) VALUES (?, ?, ?)').run(
+          id,
+          'unsubscribed',
+          'suppressed: sms opt-out / suppression list'
+        );
+        return {
+          messageId: id,
+          sent: false,
+          suppressed: true,
+          reason: 'sms opt-out / suppression list',
+          channel: 'sms',
+        };
+      }
       const smsSettings = await sms.resolveSmsSettings(settings);
       const provider = sms.getSmsProvider(smsSettings, db);
       try {
