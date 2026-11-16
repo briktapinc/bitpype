@@ -66,8 +66,7 @@ process.env.APP_URL = 'https://bitpype.test';
 process.env.CAPTCHA_OPTIONAL = '1';
 process.env.NODE_ENV = 'production';
 process.env['SESSION_' + 'SECRET'] = ['batch192', 'test', 'session', 'secret'].join('-');
-process.env.SETTINGS_ENCRYPTION_KEY =
-  process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 19).toString('base64');
+process.env.SETTINGS_ENCRYPTION_KEY = process.env.SETTINGS_ENCRYPTION_KEY || Buffer.alloc(32, 19).toString('base64');
 
 let passed = 0;
 const failures = [];
@@ -122,8 +121,12 @@ const norm = (p) => '+1' + p;
       { ws: WS }
     );
     try {
-      await query(`UPDATE credit_ledger SET stripe_payment_intent_id = 'pi_192_old' WHERE stripe_checkout_session_id = 'cs_192_old'`);
-      await query(`UPDATE credit_ledger SET stripe_payment_intent_id = 'pi_192_new' WHERE stripe_checkout_session_id = 'cs_192_new'`);
+      await query(
+        `UPDATE credit_ledger SET stripe_payment_intent_id = 'pi_192_old' WHERE stripe_checkout_session_id = 'cs_192_old'`
+      );
+      await query(
+        `UPDATE credit_ledger SET stripe_payment_intent_id = 'pi_192_new' WHERE stripe_checkout_session_id = 'cs_192_new'`
+      );
     } catch {
       /* pre-192 tree: no PI column — the fallback defect is the point */
     }
@@ -205,9 +208,9 @@ const norm = (p) => '+1' + p;
     insLead.run(3, 'Media Biz', PHONE_MEDIA, 'media@example.com');
 
     // Lead 1 texted STOP: LeadScout contact carries the opt-out stamp.
-    db.prepare(
-      `INSERT INTO leadscout_contacts (phone_norm, sms_opted_out_at) VALUES (?, datetime('now'))`
-    ).run(portalContacts.normPhone(norm(PHONE_OUT)));
+    db.prepare(`INSERT INTO leadscout_contacts (phone_norm, sms_opted_out_at) VALUES (?, datetime('now'))`).run(
+      portalContacts.normPhone(norm(PHONE_OUT))
+    );
 
     // Lead 2 HAS a current MMS screenshot on file (the #23 trap).
     shots.ensureTables(db);
@@ -221,7 +224,9 @@ const norm = (p) => '+1' + p;
     ).run();
 
     const tpl0 = db
-      .prepare(`INSERT INTO email_templates (name, subject, body, sms_body, channel) VALUES ('B192 Template', 'Hi', 'Body', 'Text body', 'both')`)
+      .prepare(
+        `INSERT INTO email_templates (name, subject, body, sms_body, channel) VALUES ('B192 Template', 'Hi', 'Body', 'Text body', 'both')`
+      )
       .run();
     db.prepare(
       `INSERT INTO campaigns (id, name, template_id, status, rate_per_hour) VALUES (1, 'B192 Campaign', ?, 'active', 1000)`
@@ -245,7 +250,11 @@ const norm = (p) => '+1' + p;
     const msgStatus = (id) => db.prepare('SELECT status, error FROM campaign_messages WHERE id = ?').get(id);
 
     const q = await outreach.processQueue(db);
-    check('#15: processQueue marks the opted-out SMS suppressed', msgStatus(mOut).status === 'suppressed', JSON.stringify(msgStatus(mOut)));
+    check(
+      '#15: processQueue marks the opted-out SMS suppressed',
+      msgStatus(mOut).status === 'suppressed',
+      JSON.stringify(msgStatus(mOut))
+    );
     check(
       '#15: processQueue suppression reason names the opt-out check',
       /opt-out/.test(String(msgStatus(mOut).error || '')),
@@ -258,10 +267,21 @@ const norm = (p) => '+1' + p;
     );
     check('#15/#23: queue result counts the suppression', q && q.suppressed >= 1, JSON.stringify(q));
 
-    check('#23: plain SMS to a lead WITH a screenshot is sent', msgStatus(mPlain).status === 'sent', JSON.stringify(msgStatus(mPlain)));
+    check(
+      '#23: plain SMS to a lead WITH a screenshot is sent',
+      msgStatus(mPlain).status === 'sent',
+      JSON.stringify(msgStatus(mPlain))
+    );
     const plainSend = stubSends().find((m) => m.includes(norm(PHONE_PLAIN)));
-    check('#23: plain SMS went out with NO media attached', !!plainSend && !/media=/.test(plainSend), String(plainSend || '(no send)'));
-    check('#23: plain SMS send_mode stayed sms', db.prepare('SELECT send_mode FROM campaign_messages WHERE id = ?').get(mPlain).send_mode === 'sms');
+    check(
+      '#23: plain SMS went out with NO media attached',
+      !!plainSend && !/media=/.test(plainSend),
+      String(plainSend || '(no send)')
+    );
+    check(
+      '#23: plain SMS send_mode stayed sms',
+      db.prepare('SELECT send_mode FROM campaign_messages WHERE id = ?').get(mPlain).send_mode === 'sms'
+    );
 
     check('#23: media-intent message is sent', msgStatus(mMedia).status === 'sent', JSON.stringify(msgStatus(mMedia)));
     const mediaSend = stubSends().find((m) => m.includes(norm(PHONE_MEDIA)));
@@ -330,7 +350,10 @@ const norm = (p) => '+1' + p;
     // appear under the other's.
     const dbA = openWorkspaceDb(21);
     const dbB = openWorkspaceDb(22);
-    check('#20: workspace id derives from tenant db handles', workspaceIdFromDb(dbA) === 21 && workspaceIdFromDb(dbB) === 22);
+    check(
+      '#20: workspace id derives from tenant db handles',
+      workspaceIdFromDb(dbA) === 21 && workspaceIdFromDb(dbB) === 22
+    );
     const folderA = shots.shotFolder(1, workspaceIdFromDb(dbA));
     const folderB = shots.shotFolder(1, workspaceIdFromDb(dbB));
     fs.mkdirSync(folderA, { recursive: true });
@@ -417,12 +440,15 @@ const norm = (p) => '+1' + p;
       ).run(JSON.stringify(pages));
 
       const seoTool = require(path.join(root, 'server/seoTool.js'));
-      await checkAsync('#12: generateSeoProposal does NOT throw AI_NOT_CONFIGURED under routed-only config', async () => {
-        const state = await seoTool.generateSeoProposal(db, 3101);
-        assert.ok(state && state.site && state.site.id === 3101);
-        const row = db.prepare('SELECT status FROM seo_proposals WHERE website_id = 3101').get();
-        assert.ok(row && row.status === 'pending', 'proposal persisted');
-      });
+      await checkAsync(
+        '#12: generateSeoProposal does NOT throw AI_NOT_CONFIGURED under routed-only config',
+        async () => {
+          const state = await seoTool.generateSeoProposal(db, 3101);
+          assert.ok(state && state.site && state.site.id === 3101);
+          const row = db.prepare('SELECT status FROM seo_proposals WHERE website_id = 3101').get();
+          assert.ok(row && row.status === 'pending', 'proposal persisted');
+        }
+      );
 
       // A previously-silent enhancement path proceeds: designLearning
       // distill used to return reason 'ai_not_configured'.
@@ -466,8 +492,11 @@ const norm = (p) => '+1' + p;
         ],
       },
     ];
-    db.prepare('INSERT INTO websites (id, lead_id, name, pages, theme) VALUES (19201, 19201, ?, ?, ?)')
-      .run('Cold Backup Biz', JSON.stringify(pages), JSON.stringify({ colors: { primary: '#224422' } }));
+    db.prepare('INSERT INTO websites (id, lead_id, name, pages, theme) VALUES (19201, 19201, ?, ?, ?)').run(
+      'Cold Backup Biz',
+      JSON.stringify(pages),
+      JSON.stringify({ colors: { primary: '#224422' } })
+    );
 
     // Child process: genuinely cold handle cache. Its FIRST touch of
     // the workspace is a {create:false} read (the public-preview
@@ -510,12 +539,23 @@ const norm = (p) => '+1' + p;
   console.log('batch192 #7: vendor_design tokens are barred from the design contact/email tools (MCP + REST)');
   {
     const vt = require(path.join(root, 'server/vendorTools.js'));
-    check('#7: MCP policy denies design.setContact for vendor tokens', vt.vendorToolAllowed('design.setContact') === false);
-    check('#7: MCP policy denies design.emailQuestions for vendor tokens', vt.vendorToolAllowed('design.emailQuestions') === false);
-    check('#7: MCP policy denies design.emailDelivery for vendor tokens', vt.vendorToolAllowed('design.emailDelivery') === false);
+    check(
+      '#7: MCP policy denies design.setContact for vendor tokens',
+      vt.vendorToolAllowed('design.setContact') === false
+    );
+    check(
+      '#7: MCP policy denies design.emailQuestions for vendor tokens',
+      vt.vendorToolAllowed('design.emailQuestions') === false
+    );
+    check(
+      '#7: MCP policy denies design.emailDelivery for vendor tokens',
+      vt.vendorToolAllowed('design.emailDelivery') === false
+    );
     check(
       '#7: legitimate design tools stay allowed for vendor tokens',
-      vt.vendorToolAllowed('design.deliver') === true && vt.vendorToolAllowed('design.list') === true && vt.vendorToolAllowed('website.edit') === true
+      vt.vendorToolAllowed('design.deliver') === true &&
+        vt.vendorToolAllowed('design.list') === true &&
+        vt.vendorToolAllowed('website.edit') === true
     );
     check(
       '#7: REST policy denies the three design contact/email suffixes',
@@ -525,7 +565,8 @@ const norm = (p) => '+1' + p;
     );
     check(
       '#7: REST policy keeps legitimate design writes allowed',
-      vt.vendorRestAllowed('POST', '/design/jobs') === true && vt.vendorRestAllowed('POST', '/websites/40/preview') === true
+      vt.vendorRestAllowed('POST', '/design/jobs') === true &&
+        vt.vendorRestAllowed('POST', '/websites/40/preview') === true
     );
 
     // Dispatch level — the real MCP gate (batch103 pattern).
@@ -541,11 +582,24 @@ const norm = (p) => '+1' + p;
     const vctx = { tokenClass: 'vendor_design', tokenPrefix: 'ws_vendor_b192' };
     for (const t of ['design.setContact', 'design.emailQuestions', 'design.emailDelivery']) {
       const r = await mcp.callTool(ws7, t, { id: 1, jobId: 1, email: 'x@example.com' }, vctx);
-      check(`#7: MCP dispatch refuses ${t} for a vendor token`, !!(r && r.ok === false && r.error === 'VENDOR_TOKEN_FORBIDDEN'), JSON.stringify(r).slice(0, 200));
+      check(
+        `#7: MCP dispatch refuses ${t} for a vendor token`,
+        !!(r && r.ok === false && r.error === 'VENDOR_TOKEN_FORBIDDEN'),
+        JSON.stringify(r).slice(0, 200)
+      );
     }
     const okRes7 = await mcp.callTool(ws7, 'settings.get', {}, vctx);
-    check('#7: vendor token can still do allowed work (settings.get)', !!(okRes7 && okRes7.ok === true), JSON.stringify(okRes7).slice(0, 200));
-    const stdRes7 = await mcp.callTool(ws7, 'design.setContact', { id: 999999, email: 'x@example.com' }, { tokenClass: 'standard' });
+    check(
+      '#7: vendor token can still do allowed work (settings.get)',
+      !!(okRes7 && okRes7.ok === true),
+      JSON.stringify(okRes7).slice(0, 200)
+    );
+    const stdRes7 = await mcp.callTool(
+      ws7,
+      'design.setContact',
+      { id: 999999, email: 'x@example.com' },
+      { tokenClass: 'standard' }
+    );
     check(
       '#7: standard token is NOT vendor-refused for design.setContact',
       !(stdRes7 && stdRes7.error === 'VENDOR_TOKEN_FORBIDDEN'),
@@ -581,7 +635,9 @@ const norm = (p) => '+1' + p;
     const deniedRest7 = await runMw7('POST', '/design/42/email-delivery');
     check(
       '#7: REST guard refuses vendor POST /design/:id/email-delivery with VENDOR_TOKEN_FORBIDDEN',
-      deniedRest7.nexted === false && deniedRest7.res.statusCode === 403 && !!(deniedRest7.res.body && deniedRest7.res.body.code === 'VENDOR_TOKEN_FORBIDDEN'),
+      deniedRest7.nexted === false &&
+        deniedRest7.res.statusCode === 403 &&
+        !!(deniedRest7.res.body && deniedRest7.res.body.code === 'VENDOR_TOKEN_FORBIDDEN'),
       JSON.stringify(deniedRest7.res.body)
     );
     const allowedRest7 = await runMw7('POST', '/design/jobs');
@@ -594,7 +650,11 @@ const norm = (p) => '+1' + p;
     const sm = require(path.join(root, 'server/siteModules.js'));
     const db = openWorkspaceDb(19208);
     const LEAD8 = 19208;
-    db.prepare(`INSERT INTO leads (id, business_name, email, status) VALUES (?, ?, ?, 'customer')`).run(LEAD8, 'Reset Race Biz', 'race@example.com');
+    db.prepare(`INSERT INTO leads (id, business_name, email, status) VALUES (?, ?, ?, 'customer')`).run(
+      LEAD8,
+      'Reset Race Biz',
+      'race@example.com'
+    );
     await sm.signupMember(db, LEAD8, { name: 'Race Member', email: 'race@example.com', password: 'password123' });
     const rr8 = sm.requestMemberReset(db, LEAD8, 'race@example.com');
     check('#8: fixture reset token issued', !!(rr8 && rr8.resetToken));
@@ -638,7 +698,10 @@ const norm = (p) => '+1' + p;
     const refreshAt = authzHtml.indexOf('await refresh()', loginAt);
     check(
       '#9: authorize.html re-GETs the original /authorize URL after login, before refresh()',
-      loginAt > -1 && reauthAt > loginAt && refreshAt > reauthAt && authzHtml.slice(reauthAt, reauthAt + 120).includes("redirect: 'manual'"),
+      loginAt > -1 &&
+        reauthAt > loginAt &&
+        refreshAt > reauthAt &&
+        authzHtml.slice(reauthAt, reauthAt + 120).includes("redirect: 'manual'"),
       `login=${loginAt} reauth=${reauthAt} refresh=${refreshAt}`
     );
 
@@ -660,7 +723,11 @@ const norm = (p) => '+1' + p;
     const ws9 = Number(made9.workspaceId);
     await query('UPDATE users SET is_super_admin = 1 WHERE id = :id', { id: Number(made9.userId) }); // paid plan for consent
     const db9 = openWorkspaceDb(ws9);
-    db9.prepare(`INSERT INTO leads (id, business_name, email, status) VALUES (19209, 'OAuth Biz', 'oauth-b192@example.com', 'customer')`).run();
+    db9
+      .prepare(
+        `INSERT INTO leads (id, business_name, email, status) VALUES (19209, 'OAuth Biz', 'oauth-b192@example.com', 'customer')`
+      )
+      .run();
     const portalHash = bcrypt.hashSync('portal-pass-192', 12);
     const insA = await query(
       `INSERT INTO client_portal_users (email, password_hash, workspace_id, lead_id, business_name, status)
@@ -674,7 +741,11 @@ const norm = (p) => '+1' + p;
       { h: portalHash, ws: ws9 }
     );
     const userB9 = Number(insB.insertId);
-    check('#9: two distinct portal users seeded in one workspace', userA9 > 0 && userB9 > 0 && userA9 !== userB9, `${userA9}/${userB9}`);
+    check(
+      '#9: two distinct portal users seeded in one workspace',
+      userA9 > 0 && userB9 > 0 && userA9 !== userB9,
+      `${userA9}/${userB9}`
+    );
 
     const oauth = require(path.join(root, 'server/mcpOAuth.js'));
     const registered = await oauth.registerClient({
@@ -738,7 +809,11 @@ const norm = (p) => '+1' + p;
       const jar = jar9();
       // 1 — signed-out /authorize parks display-only; pending shows it.
       const a1 = await jar.call('GET', `/authorize?${authzQuery}`);
-      check('#9: signed-out /authorize serves the consent page', a1.status === 200 && a1.text.includes('panel-login'), `status=${a1.status}`);
+      check(
+        '#9: signed-out /authorize serves the consent page',
+        a1.status === 200 && a1.text.includes('panel-login'),
+        `status=${a1.status}`
+      );
       const p1 = await jar.call('GET', '/oauth/pending');
       check(
         '#9: pre-auth park is visible signed-out with no client (sign-in panel state)',
@@ -746,8 +821,15 @@ const norm = (p) => '+1' + p;
         JSON.stringify(p1.json).slice(0, 200)
       );
       // 2 — sign in (regenerates the session, destroying the park).
-      const login = await jar.call('POST', '/api/v1/portal/login', { email: 'oauth-b192@example.com', password: 'portal-pass-192' });
-      check('#9: portal login succeeds mid-flow', login.status === 200 && !!(login.json && login.json.ok), JSON.stringify(login.json).slice(0, 200));
+      const login = await jar.call('POST', '/api/v1/portal/login', {
+        email: 'oauth-b192@example.com',
+        password: 'portal-pass-192',
+      });
+      check(
+        '#9: portal login succeeds mid-flow',
+        login.status === 200 && !!(login.json && login.json.ok),
+        JSON.stringify(login.json).slice(0, 200)
+      );
       // 3 — negative control: WITHOUT re-authorizing, the park is gone
       // (L2 + regeneration intact — the pre-auth park is never revived).
       const pGone = await jar.call('GET', '/oauth/pending');
@@ -763,7 +845,8 @@ const norm = (p) => '+1' + p;
       const p2 = await jar.call('GET', '/oauth/pending');
       check(
         '#9: after re-authorize, /oauth/pending shows the request AND the signed-in client (consent reachable)',
-        p2.status === 200 && !!(p2.json && p2.json.pending && p2.json.client && p2.json.client.email === 'oauth-b192@example.com'),
+        p2.status === 200 &&
+          !!(p2.json && p2.json.pending && p2.json.client && p2.json.client.email === 'oauth-b192@example.com'),
         JSON.stringify(p2.json).slice(0, 240)
       );
       // 5 — consent completes and returns an authorization code redirect.
@@ -771,7 +854,13 @@ const norm = (p) => '+1' + p;
       check(
         '#9: consent approves and redirects with a code for the original request',
         consent.status === 200 &&
-          !!(consent.json && consent.json.redirect && consent.json.redirect.startsWith('http://127.0.0.1:8911/callback?') && consent.json.redirect.includes('code=') && consent.json.redirect.includes('state=state192')),
+          !!(
+            consent.json &&
+            consent.json.redirect &&
+            consent.json.redirect.startsWith('http://127.0.0.1:8911/callback?') &&
+            consent.json.redirect.includes('code=') &&
+            consent.json.redirect.includes('state=state192')
+          ),
         JSON.stringify(consent.json).slice(0, 240)
       );
       // 6 — mismatch half: a park bound to user A, presented by a
