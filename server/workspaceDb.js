@@ -265,6 +265,41 @@ function openWorkspaceDb(workspaceId, opts = {}) {
   return db;
 }
 
+/**
+ * Batch 192 (Greptile verification #11): a WRITABLE handle for a
+ * workspace whose DB file ALREADY exists — for writers that must not
+ * provision a tenant (the standalone-backup generator) but cannot
+ * work through the cached readonly:true handle a {create:false}
+ * read leaves behind. When the cache holds the readonly handle it
+ * is closed and reopened writable — the exact upgrade a normal
+ * openWorkspaceDb() call performs on a cache hit (see above), so
+ * readonly protections for {create:false} readers are unchanged:
+ * they still get a readonly handle, and only an explicit caller of
+ * this function upgrades it. Returns null when no tenant DB file
+ * exists (never creates one). Leases: no lease is taken or needed —
+ * the returned handle is the shared cached one, same as a plain
+ * openWorkspaceDb() result.
+ */
+function openExistingWorkspaceDbWritable(workspaceId) {
+  const id = Number(workspaceId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid workspaceId');
+  if (caches.has(id) && !readonlyHandles.has(id)) return caches.get(id);
+  if (!fs.existsSync(dbPathFor(id))) return null;
+  if (caches.has(id)) {
+    // Cached readonly handle — close it and fall through to the
+    // full writable open, mirroring the normal-open upgrade path.
+    const hit = caches.get(id);
+    caches.delete(id);
+    readonlyHandles.delete(id);
+    try {
+      hit.close();
+    } catch {
+      /* ignore */
+    }
+  }
+  return openWorkspaceDb(id);
+}
+
 function closeAll() {
   for (const db of caches.values()) {
     try {
@@ -280,6 +315,7 @@ function closeAll() {
 
 module.exports = {
   openWorkspaceDb,
+  openExistingWorkspaceDbWritable,
   acquireWorkspaceDb,
   releaseWorkspaceDb,
   leaseCount,

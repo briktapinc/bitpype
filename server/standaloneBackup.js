@@ -1019,8 +1019,15 @@ async function generateStandaloneBackup({ workspaceId, websiteId, workDir, repoR
   if (!Number.isInteger(wsId) || wsId <= 0) throw fail('BAD_WORKSPACE', 'workspaceId is required', 400);
   if (!Number.isInteger(siteId) || siteId <= 0) throw fail('BAD_WEBSITE', 'websiteId is required', 400);
 
-  const { openWorkspaceDb } = require('./workspaceDb');
-  const tenantDb = openWorkspaceDb(wsId, { create: false });
+  // Batch 192 (#11): the generator WRITES through this handle
+  // (exportStatic stamps preview_path, logs activity), so a plain
+  // {create:false} open is wrong here — on a cold process it returns
+  // the cached readonly:true handle and the export dies with
+  // SQLITE_READONLY. openExistingWorkspaceDbWritable keeps the
+  // never-provision guarantee (null when no tenant DB file exists)
+  // while upgrading a cached readonly handle to writable.
+  const { openExistingWorkspaceDbWritable } = require('./workspaceDb');
+  const tenantDb = openExistingWorkspaceDbWritable(wsId);
   if (!tenantDb) throw fail('WORKSPACE_NOT_FOUND', `workspace ${wsId} has no tenant DB`, 404);
   const site = tenantDb.prepare('SELECT * FROM websites WHERE id = ?').get(siteId);
   if (!site) throw fail('WEBSITE_NOT_FOUND', `website ${siteId} not found in workspace ${wsId}`, 404);
