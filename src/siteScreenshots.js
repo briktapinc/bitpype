@@ -71,15 +71,53 @@ function ensureTables(db) {
   `);
 }
 
-function shotFolder(websiteId) {
-  return path.join(openPreview.exportRoot(), `site-${Number(websiteId)}`, 'screenshots');
+/**
+ * Batch 192 (Greptile verification #20): screenshot storage is
+ * WORKSPACE-SCOPED — `ws-{workspaceId}-site-{websiteId}/screenshots`,
+ * the canonical pattern the export folders already use
+ * (server/domain.js siteExportFolder, src/assetValidation.js
+ * siteStorageFolder). Website ids are per-tenant autoincrements, so
+ * the pre-fix `site-{websiteId}` folder/URL was shared by every
+ * workspace's site N and workspaces overwrote each other's shots.
+ *
+ * The workspace id comes from the tenant DB handle itself
+ * (assetValidation.workspaceIdFromDb — …/workspaces/<id>/….db).
+ * When it cannot be determined (in-memory / temp test DBs) the
+ * legacy folder stands: those handles are single-tenant fixtures,
+ * so no collision is possible.
+ *
+ * Read-compat: rows in site_screenshots store the ABSOLUTE
+ * storage_path and the public_url minted at capture time, and every
+ * reader (listScreenshots, getCurrentEmailShot/MmsShot, the cached
+ * shot probe) goes through those stored values — existing shots
+ * under the legacy folder keep resolving untouched, the
+ * /site-previews gate still resolves legacy `site-{id}` folders to
+ * workspace 1, and only NEW captures write the scoped path.
+ */
+function shotFolderName(websiteId, workspaceId) {
+  const ws = Number(workspaceId);
+  const id = Number(websiteId);
+  if (Number.isInteger(ws) && ws > 0 && Number.isInteger(id) && id > 0) return `ws-${ws}-site-${id}`;
+  return `site-${id}`;
 }
 
-function publicUrlFor(websiteId, relPath) {
+function shotFolder(websiteId, workspaceId) {
+  return path.join(openPreview.exportRoot(), shotFolderName(websiteId, workspaceId), 'screenshots');
+}
+
+function publicUrlFor(websiteId, relPath, workspaceId) {
   const rel = String(relPath || '')
     .replace(/\\/g, '/')
     .replace(/^\/+/, '');
-  return `${appUrl()}/site-previews/site-${Number(websiteId)}/screenshots/${rel}`;
+  return `${appUrl()}/site-previews/${shotFolderName(websiteId, workspaceId)}/screenshots/${rel}`;
+}
+
+function workspaceIdForDb(db) {
+  try {
+    return require('./assetValidation').workspaceIdFromDb(db);
+  } catch {
+    return null;
+  }
 }
 
 function parsePages(site) {
@@ -556,8 +594,9 @@ async function captureWebsiteScreenshots(db, websiteId, opts = {}) {
   const targets = resolveCapturePages(pages);
   if (!targets.length) throw fail('NO_PAGES', 'Website has no pages to capture');
 
+  const wsId = workspaceIdForDb(db);
   const version = nextVersion(db, id);
-  const versionDir = path.join(shotFolder(id), `v${version}`);
+  const versionDir = path.join(shotFolder(id, wsId), `v${version}`);
   fs.mkdirSync(versionDir, { recursive: true });
 
   const puppeteer = await loadPuppeteer();
@@ -593,7 +632,7 @@ async function captureWebsiteScreenshots(db, websiteId, opts = {}) {
           viewport: vp.name,
           kind: 'capture',
           storage_path: abs,
-          public_url: publicUrlFor(id, rel),
+          public_url: publicUrlFor(id, rel, wsId),
           width: meta.width || vp.width,
           height: meta.height || vp.height,
           bytes: png.length,
@@ -627,7 +666,7 @@ async function captureWebsiteScreenshots(db, websiteId, opts = {}) {
       viewport: 'desktop',
       kind: 'email',
       storage_path: emailAbs,
-      public_url: publicUrlFor(id, `v${version}/${emailName}`),
+      public_url: publicUrlFor(id, `v${version}/${emailName}`, wsId),
       width: email.width,
       height: email.height,
       bytes: email.buffer.length,
@@ -650,7 +689,7 @@ async function captureWebsiteScreenshots(db, websiteId, opts = {}) {
       viewport: 'desktop',
       kind: 'mms',
       storage_path: mmsAbs,
-      public_url: publicUrlFor(id, `v${version}/${mmsName}`),
+      public_url: publicUrlFor(id, `v${version}/${mmsName}`, wsId),
       width: mms.width,
       height: mms.height,
       bytes: mms.bytes,
@@ -749,6 +788,7 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
   const site = db.prepare('SELECT * FROM websites WHERE id = ?').get(id);
   if (!site) throw fail('NOT_FOUND', `Website ${id} not found`);
 
+  const wsId = workspaceIdForDb(db);
   const width = Math.max(320, Math.min(2560, Math.round(Number(opts.width) || 1440)));
   const height = Math.max(480, Math.min(4096, Math.round(Number(opts.height) || (width <= 500 ? 844 : 900))));
   const viewport = {
@@ -837,7 +877,7 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
       const png = await pageObj.screenshot({ type: 'png', fullPage: false, captureBeyondViewport: false });
       const buf = Buffer.isBuffer(png) ? png : Buffer.from(png);
       const version = nextVersion(db, id);
-      const versionDir = path.join(shotFolder(id), `v${version}`);
+      const versionDir = path.join(shotFolder(id, wsId), `v${version}`);
       const fileName = `${safeKey}-${viewport.width}.png`;
       const abs = path.join(versionDir, fileName);
       writeShotFile(abs, buf);
@@ -854,7 +894,7 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
         viewport: String(viewport.width),
         kind: 'capture',
         storage_path: abs,
-        public_url: publicUrlFor(id, rel),
+        public_url: publicUrlFor(id, rel, wsId),
         width: meta.width || viewport.width,
         height: meta.height || viewport.height,
         bytes: buf.length,
@@ -887,7 +927,7 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
 
   const pageUrl = `${previewBase}/${pagePath === 'index.html' ? '' : pagePath}`.replace(/([^:]\/)\/+/g, '$1');
   const version = nextVersion(db, id);
-  const versionDir = path.join(shotFolder(id), `v${version}`);
+  const versionDir = path.join(shotFolder(id, wsId), `v${version}`);
   fs.mkdirSync(versionDir, { recursive: true });
 
   const puppeteer = await loadPuppeteer();
@@ -913,7 +953,7 @@ async function captureOneScreenshot(db, websiteId, opts = {}) {
       viewport: String(viewport.width),
       kind: 'capture',
       storage_path: abs,
-      public_url: publicUrlFor(id, rel),
+      public_url: publicUrlFor(id, rel, wsId),
       width: meta.width || viewport.width,
       height: meta.height || viewport.height,
       bytes: png.length,
@@ -992,5 +1032,6 @@ module.exports = {
   makeMmsRendition,
   publicUrlFor,
   shotFolder,
+  shotFolderName,
   publicRow,
 };

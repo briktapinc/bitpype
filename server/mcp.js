@@ -2871,7 +2871,7 @@ function parityToolDefs() {
     {
       name: 'site.screenshots.list',
       description:
-        'List registered site preview screenshots (home/services × desktop/mobile + email/MMS renditions) by websiteId or leadId. Stored under EXPORT_ROOT/site-{id}/screenshots and served via /site-previews. Optional ready:true runs HTTP image/* checks.',
+        'List registered site preview screenshots (home/services × desktop/mobile + email/MMS renditions) by websiteId or leadId. Stored under EXPORT_ROOT/ws-{workspaceId}-site-{id}/screenshots and served via /site-previews. Optional ready:true runs HTTP image/* checks.',
       inputSchema: schema({
         websiteId: ID,
         leadId: ID,
