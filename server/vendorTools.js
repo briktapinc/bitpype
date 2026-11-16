@@ -32,6 +32,16 @@ const DENY_EXACT = new Set([
   'members.revokeComp',
   'domains.link',
   'domains.unlink',
+  // Batch 192 (Greptile detailed A): the design-namespace mail tools
+  // slipped past DENY_PREFIXES ('email.' does not prefix-match
+  // 'design.email…') while ALLOW_PREFIXES admits 'design.' wholesale.
+  // setContact sets the recipient (and syncs it onto the linked lead);
+  // emailQuestions / emailDelivery SEND through the workspace's SMTP
+  // sender — outbound messaging, which this class is barred from.
+  // The rest of the design surface stays allowed.
+  'design.setContact',
+  'design.emailQuestions',
+  'design.emailDelivery',
 ]);
 
 // Whole namespaces that are never design work: money movement,
@@ -124,6 +134,11 @@ function vendorRestAllowed(method, rawPath) {
     // list: website.delete / design.delete are exact denies there).
     if (/(^|\/)(delete|purge|restore|standalone-backup)(\/|$)/.test(p)) return false;
     if (/\/websites\/generate(\/|$)/.test(p)) return false; // AI-spend generation run
+    // Batch 192 (Greptile detailed A): REST mirror of the MCP exact
+    // denies above — POST /design/:id/contact sets the mail recipient,
+    // /email-questions and /email-delivery send from the workspace's
+    // SMTP sender. Outbound messaging is barred for this class.
+    if (/\/design\/[^/]+\/(contact|email-questions|email-delivery)(\/|$)/.test(p)) return false;
     return VENDOR_REST_WRITE_PREFIXES.some((x) => p === x || p.startsWith(x + '/'));
   }
   return false; // DELETE and anything exotic: never for this class
