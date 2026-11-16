@@ -3383,6 +3383,14 @@ async function main() {
   let lastChatArgs22 = null;
   const stubAi22 = {
     aiConfigured: (d) => realAi22.aiConfigured(d),
+    // Batch 192 (#12): generateSeoProposal now pre-gates on the routed
+    // check. Delegate to the real implementation — this stub's
+    // aiConfigured already delegates to the real settings-table read on
+    // the same db the suite toggles ('ai.api_key' INSERT/DELETE), and
+    // the suite's fixture world configures no routed provider, so the
+    // routed check preserves the suite's configured/unconfigured
+    // expectations exactly (legacy key set → true; unset → false).
+    aiConfiguredRouted: (d, k) => realAi22.aiConfiguredRouted(d, k),
     chat: async (args) => {
       lastChatArgs22 = args;
       return { text: canned22, model: 'stub-model', promptTokens: 10, completionTokens: 10, costUsd: 0 };
