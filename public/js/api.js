@@ -665,6 +665,7 @@ window.ScoutApi = (() => {
     adminCreateTrainingModule: (body) => post('/admin/training-modules', body),
     adminUpdateTrainingModule: (id, body) => patch('/admin/training-modules/' + id, body),
     adminDeleteTrainingModule: (id) => del('/admin/training-modules/' + id),
+    adminUploadTrainingVideo: (id, body) => post('/admin/training-modules/' + id + '/video', body),
     adminReorderTrainingModules: (orderedIds) => put('/admin/training-modules/reorder', { orderedIds }),
     adminWorkspaces: (q) => get('/admin/workspaces', q),
     adminWorkspace: (id) => get('/admin/workspaces/' + id),

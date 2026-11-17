@@ -9556,6 +9556,15 @@ function openTrainingModuleEditor(mod, onSaved) {
         <div class="field"><label for="tm-video">Video URL (16:9)</label><input id="tm-video" type="text" value="${esc(m0.videoUrl || '')}" placeholder="/training/01-welcome.mp4" /></div>
         <div class="field"><label for="tm-video-m">Video URL (mobile, optional)</label><input id="tm-video-m" type="text" value="${esc(m0.videoMobileUrl || '')}" placeholder="/training-mobile/01-welcome.mp4" /></div>
       </div>
+      ${
+        isNew
+          ? '<p class="hint">To upload a video file instead of linking one, add the module first, then reopen it here and use the upload fields.</p>'
+          : `<div class="row">
+        <div class="field"><label for="tm-file">Replace video (16:9) — MP4, up to 50 MB</label><input id="tm-file" type="file" accept="video/mp4,.mp4" /></div>
+        <div class="field"><label for="tm-file-m">Replace video (mobile) — MP4, up to 50 MB</label><input id="tm-file-m" type="file" accept="video/mp4,.mp4" /></div>
+      </div>
+      <p class="hint">Choosing a file and saving uploads it and points the URL above at the uploaded copy — the portal plays the new video right away.</p>`
+      }
       <div class="field"><label for="tm-transcript">Transcript</label><textarea id="tm-transcript" rows="8">${esc(m0.transcript || '')}</textarea></div>
       <label style="font-weight:normal"><input id="tm-published" type="checkbox" ${m0.published ? 'checked' : ''} /> Published (visible in the portal)</label>
       <div class="msg" id="tm-msg"></div>`,
@@ -9579,7 +9588,30 @@ function openTrainingModuleEditor(mod, onSaved) {
           }
           try {
             if (isNew) await api.adminCreateTrainingModule(body);
-            else await api.adminUpdateTrainingModule(m0.id, body);
+            else {
+              await api.adminUpdateTrainingModule(m0.id, body);
+              // Batch 195: files chosen in the replace fields upload
+              // after the field save; the server points the module's
+              // URL at the uploaded copy.
+              const readAsBase64 = (file) =>
+                new Promise((resolve, reject) => {
+                  const r = new FileReader();
+                  r.onload = () => resolve(String(r.result || '').replace(/^data:[^,]*,/, ''));
+                  r.onerror = () => reject(new Error('Could not read the selected file.'));
+                  r.readAsDataURL(file);
+                });
+              const uploads = [
+                ['main', $('#tm-file', mm.el)],
+                ['mobile', $('#tm-file-m', mm.el)],
+              ];
+              for (const [slot, input] of uploads) {
+                const file = input && input.files && input.files[0];
+                if (!file) continue;
+                setMsg(msg, `Uploading ${slot === 'mobile' ? 'mobile ' : ''}video (${Math.round(file.size / 1024)} KB)…`);
+                const dataBase64 = await readAsBase64(file);
+                await api.adminUploadTrainingVideo(m0.id, { slot, dataBase64 });
+              }
+            }
             toast(isNew ? 'Module added' : 'Module saved', 'ok');
             mm.close();
             if (onSaved) onSaved();
@@ -9600,7 +9632,7 @@ async function renderAdminTraining(el) {
   el.innerHTML = `
     <div class="panel">
       <div class="panel-b">
-        <p class="hint">The portal <strong>Training</strong> tab shows published modules in this order. Videos are served from the URLs below (seeded files live under <code>/training/</code> and <code>/training-mobile/</code>).</p>
+        <p class="hint">The portal <strong>Training</strong> tab shows published modules in this order. Videos are served from the URLs below (seeded files live under <code>/training/</code> and <code>/training-mobile/</code>); to replace a video with a new file, open <strong>Edit</strong> on the module and use the replace-video upload fields.</p>
         <div class="row actions" style="margin-top:0.75rem">
           <button class="btn" type="button" id="tm-add">Add module</button>
         </div>

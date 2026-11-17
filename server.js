@@ -202,9 +202,14 @@ app.use((req, res, next) => {
   // uploads above (~4/3 inflation) — the pipeline's own ~5 MB image cap
   // would be unreachable under the 1 MB default.
   const photoUpload = /^\/api\/v1\/modules\/public\/[^/]+\/photocapture\/?$/i.test(req.path || '');
+  // Batch 195: a Training video re-upload rides base64-in-JSON like
+  // the uploads above (~4/3 inflation) — its documented 50 MB cap
+  // would be unreachable under the admin family's 8 MB default, so
+  // this one route gets 70 MB and the route's own cap check runs.
+  const trainingUpload = /^\/api\/v1\/admin\/training-modules\/\d+\/video\/?$/i.test(req.path || '');
   const analytics = req.path.startsWith('/api/v1/site-analytics/public/');
   return express.json({
-    limit: analytics ? '1kb' : chatUpload ? '15mb' : promo ? '12mb' : large || photoUpload ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb',
+    limit: analytics ? '1kb' : trainingUpload ? '70mb' : chatUpload ? '15mb' : promo ? '12mb' : large || photoUpload ? '8mb' : process.env.JSON_BODY_LIMIT || '1mb',
   })(
     req,
     res,
@@ -792,6 +797,27 @@ app.get('/brand-files/:name', (req, res) => {
   if (!stored) return res.status(404).end();
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  return res.type(stored.contentType).sendFile(stored.file);
+});
+
+// Batch 195 — Training videos re-uploaded in Admin live on the DATA
+// volume and SHADOW the baked files at the same canonical URLs
+// (/training/<slug>.mp4, /training-mobile/<slug>.mp4): when an upload
+// exists it is served here (Range-capable via sendFile); otherwise
+// the request falls through to the committed asset under public/
+// below, untouched — the Batch 87 brand-logo pattern above. The
+// filename is strictly validated by trainingVideos.storedVideoFile
+// (minted module slugs only, resolved inside the slot dir).
+app.get(['/training/:name', '/training-mobile/:name'], (req, res, next) => {
+  const slot = String(req.path || '').startsWith('/training-mobile/') ? 'mobile' : 'main';
+  let stored = null;
+  try {
+    stored = require('./server/trainingVideos').storedVideoFile(slot, req.params.name);
+  } catch {
+    stored = null;
+  }
+  if (!stored) return next();
   res.setHeader('Cache-Control', 'public, max-age=300');
   return res.type(stored.contentType).sendFile(stored.file);
 });

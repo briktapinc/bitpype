@@ -324,9 +324,38 @@ router.patch('/training-modules/:id', async (req, res) => {
     fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'INVALID' ? 400 : 500);
   }
 });
+// Batch 195 — replace a module's video with an uploaded file.
+// Base64-in-JSON like the platform's other admin uploads (branding
+// logo); server/trainingVideos.js validates (mp4 magic bytes, 50 MB
+// cap), stores on the data volume, and points the module's URL field
+// at the canonical /training/ (or /training-mobile/) path. The URL
+// fields above keep working unchanged for hosted files.
+router.post('/training-modules/:id/video', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const raw = String(b.dataBase64 || b.data || '');
+    const buf = raw ? Buffer.from(raw.replace(/^data:[^,]*,/, ''), 'base64') : Buffer.alloc(0);
+    const out = await require('../trainingVideos').replaceModuleVideo(Number(req.params.id), String(b.slot || 'main'), buf);
+    await platform.audit(
+      req.session.userId,
+      'training_module.video_replace',
+      `id=${req.params.id} slot=${out.slot} url=${out.url} bytes=${out.bytes}`
+    );
+    ok(res, out);
+  } catch (e) {
+    fail(res, e, e.code === 'NOT_FOUND' ? 404 : e.code === 'INVALID' || e.code === 'EMPTY' || e.code === 'TOO_LARGE' || e.code === 'INVALID_VIDEO' ? 400 : 500);
+  }
+});
 router.delete('/training-modules/:id', async (req, res) => {
   try {
     const data = await require('../learningModules').deleteModule(Number(req.params.id));
+    // Batch 195: drop the module's uploaded videos with it (the baked
+    // seed files in public/ are never touched). Best-effort.
+    try {
+      require('../trainingVideos').deleteModuleVideos(data.slug);
+    } catch {
+      /* file cleanup never blocks the delete */
+    }
     await platform.audit(req.session.userId, 'training_module.delete', `id=${req.params.id} slug=${data.slug}`);
     ok(res, data);
   } catch (e) {
