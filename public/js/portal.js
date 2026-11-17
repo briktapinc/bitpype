@@ -5858,6 +5858,11 @@
   // order. Each module is a video (portrait file on narrow screens)
   // with its full transcript under the player. Content is managed in
   // Admin → Training; unpublished modules never reach this list.
+  // Batch 196 — a module with BOTH a 16:9 and a mobile video gets a
+  // format switch under the player. The default is unchanged (the
+  // Batch 194 viewport rule: mobile file under 700px, 16:9 above);
+  // the switch swaps the source for that viewing and carries the
+  // playback position + play state across the swap.
   let trainingLoaded = false;
   async function loadTraining() {
     const host = document.getElementById('training-host');
@@ -5872,23 +5877,67 @@
     const narrow = typeof window !== 'undefined' && window.innerWidth < 700;
     host.innerHTML = modules
       .map((m, i) => {
-        const src = narrow && m.videoMobileUrl ? m.videoMobileUrl : m.videoUrl;
+        const both = !!(m.videoUrl && m.videoMobileUrl);
+        const useMobile = narrow && !!m.videoMobileUrl;
+        const src = useMobile ? m.videoMobileUrl : m.videoUrl;
         const paras = String(m.transcript || '')
           .split(/\n+/)
           .filter(Boolean)
           .map((p) => `<p style="margin:0 0 8px">${esc(p)}</p>`)
           .join('');
+        const fmtBtn = (fmt, label) => {
+          const active = (fmt === 'mobile') === useMobile;
+          return `<button type="button" class="${active ? 'btn small' : 'btn soft small'} training-fmt-btn" data-training-fmt="${fmt}" aria-pressed="${active ? 'true' : 'false'}">${label}</button>`;
+        };
         return `<div class="panel" style="margin-bottom:16px">
           <h3 style="margin:0 0 10px;font-size:1.05rem">${i + 1}. ${esc(m.title || '')}</h3>
           ${
             src
-              ? `<video controls preload="none" playsinline src="${esc(src)}" style="width:100%;max-width:880px;aspect-ratio:16/9;background:#000;border-radius:8px"></video>`
+              ? `<video controls preload="none" playsinline src="${esc(src)}" data-training-video data-training-index="${i}" data-training-current="${useMobile ? 'mobile' : 'main'}" style="width:100%;max-width:880px;aspect-ratio:16/9;background:#000;border-radius:8px"></video>${
+                  both
+                    ? `<div class="training-fmt" role="group" aria-label="Video format" style="margin-top:8px;display:flex;gap:6px;align-items:center"><span class="hint" style="margin:0">Format:</span>${fmtBtn('main', '16:9')}${fmtBtn('mobile', 'Mobile')}</div>`
+                    : ''
+                }`
               : '<p class="hint">Video coming soon.</p>'
           }
           <div class="training-transcript" style="margin-top:12px;max-width:880px">${paras}</div>
         </div>`;
       })
       .join('');
+    // Batch 196 — format switch wiring (rendered only when a module
+    // has both files). Swap the source, then restore the position
+    // (clamped to the new file's duration) and resume if it was
+    // playing, once the swapped file's metadata is in.
+    host.querySelectorAll('.training-fmt-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const panel = btn.closest('.panel');
+        const video = panel && panel.querySelector('video[data-training-video]');
+        if (!video) return;
+        const mod = modules[Number(video.getAttribute('data-training-index'))];
+        if (!mod) return;
+        const fmt = btn.getAttribute('data-training-fmt') === 'mobile' ? 'mobile' : 'main';
+        if (video.getAttribute('data-training-current') === fmt) return;
+        const target = fmt === 'mobile' ? mod.videoMobileUrl : mod.videoUrl;
+        if (!target) return;
+        const at = video.currentTime || 0;
+        const wasPlaying = !video.paused && !video.ended;
+        const restore = () => {
+          try {
+            if (at > 0 && isFinite(video.duration) && video.duration > 0) video.currentTime = Math.min(at, video.duration);
+          } catch {}
+          if (wasPlaying) video.play().catch(() => {});
+        };
+        video.addEventListener('loadedmetadata', restore, { once: true });
+        video.setAttribute('data-training-current', fmt);
+        video.src = target;
+        video.load();
+        panel.querySelectorAll('.training-fmt-btn').forEach((b) => {
+          const on = b === btn;
+          b.setAttribute('aria-pressed', on ? 'true' : 'false');
+          b.className = `${on ? 'btn small' : 'btn soft small'} training-fmt-btn`;
+        });
+      });
+    });
   }
 
   // Batch 194 — Packages panel: the sign-up packages (live plan

@@ -352,7 +352,12 @@ async function main() {
     // census totals moved per the Batch 194 batch103 note
     // (518 / 387 / 88 / 43) and the regenerated baseline set equals
     // the live census set exactly.
-    assert.ok(baseline.includes('public/js/portal.js:14857'), 'baseline carries the shifted assistantMd sink at its new line');
+    // Batch 196 re-pin: the Training format-switch insertions in
+    // portal.js shifted the same sink +49 lines (14857 -> 14906);
+    // census totals unchanged (518 / 387 / 88 / 43) and the whole-tree
+    // (file,kind,snippet) multiset is identical to the Batch 195
+    // census — zero sinks added or removed, pure line movement.
+    assert.ok(baseline.includes('public/js/portal.js:14906'), 'baseline carries the shifted assistantMd sink at its new line');
     assert.ok(!baseline.includes('public/js/portal.js:14394'), 'stale pre-shift baseline entry removed');
     const reviewed = new Set(cz.sinks.filter((s) => s.kind === 'RAW' || s.kind === 'IDENT').map((s) => `${s.file}:${s.line}`));
     const baseSet = new Set(baseline);
