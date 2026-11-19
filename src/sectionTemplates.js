@@ -76,7 +76,11 @@ function loopDef(name, description, fields) {
  *   submit     — a submit control is present
  *   anyToken   — at least one of the named scalar tokens is used
  * `when: 'bound'` hooks apply only when the section's content binds a
- * platform form (content.form_action / content.form_token set). */
+ * platform form (content.form_action / content.form_token set).
+ * `modes: ['static'|'embed']` hooks (Batch 198) apply only in that
+ * contact_form rendering mode: 'embed' when the content carries
+ * bitpype_embed_html (the renderer suppresses the static fields and
+ * the browser-built embed form is the working form), else 'static'. */
 function hook(def) {
   return Object.assign({ required: true }, def);
 }
@@ -260,7 +264,7 @@ const MANIFEST = [
     type: 'contact_form',
     label: 'Contact form',
     summary:
-      'The one static <form> among the sections — and the functional heart of Part A. The form contract is exactly what the standard renderer emits: a <form> whose action is {{formAction}} (the platform form’s public submit URL when bound, else the mailto: fallback), fields named name / phone / email / message, and a submit control. When the section is bound to a platform form (content.form_action / form_token set at sync), the form must also carry data-bitpype-form="1" and the form-token attribute set to the formToken substitution. A form may be bound AFTER the template is saved (the platform binds contact forms at save/sync), so the robust pattern emits those two attributes inside a {{#if bound}}…{{/if}} block in the form tag — they render only when bound. Keep id="contact" on some element — it is the #contact anchor target the hero CTAs point at. {{fields}} substitutes the standard field block wholesale when a template only wants to rearrange the chrome around working fields.',
+      'The one static <form> among the sections — and the functional heart of Part A. The form contract is exactly what the standard renderer emits: a <form> whose action is {{formAction}} (the platform form’s public submit URL when bound, else the mailto: fallback), fields named name / phone / email / message, and a submit control. When the section is bound to a platform form (content.form_action / form_token set at sync), the form must also carry data-bitpype-form="1" and the form-token attribute set to the formToken substitution. A form may be bound AFTER the template is saved (the platform binds contact forms at save/sync), so the robust pattern emits those two attributes inside a {{#if bound}}…{{/if}} block in the form tag — they render only when bound. Keep id="contact" on some element — it is the #contact anchor target the hero CTAs point at. {{fields}} substitutes the standard field block wholesale when a template only wants to rearrange the chrome around working fields. EMBED MODE (Batch 198): when the section content carries bitpype_embed_html, the standard renderer suppresses the static fields entirely and the working form is the browser-built embed (form-embed.js builds the fields from the same form schema and submits with captcha). In that mode the static-form hooks do not apply; instead the template MUST include {{embedHtml}} — dropping it drops the form itself — and should restyle the chrome around the embed mount. id="contact" is required in both modes.',
     templates: true,
     tokens: [
       tok('title', T_TEXT, 'Section title (falls back to "Contact Us" when unset).'),
@@ -290,38 +294,56 @@ const MANIFEST = [
     ],
     loops: [],
     hooks: [
-      hook({ kind: 'element', tag: 'form', label: 'a <form> element' }),
-      hook({ kind: 'tokenAttr', attr: 'action', token: 'formAction', label: 'the form action set to {{formAction}}' }),
+      hook({ kind: 'element', tag: 'form', modes: ['static'], label: 'a <form> element' }),
+      hook({
+        kind: 'tokenAttr',
+        attr: 'action',
+        token: 'formAction',
+        modes: ['static'],
+        label: 'the form action set to {{formAction}}',
+      }),
       hook({
         kind: 'field',
         name: 'name',
+        modes: ['static'],
         satisfiedByToken: 'fields',
         label: 'a field named "name" (or the {{fields}} block)',
       }),
       hook({
         kind: 'field',
         name: 'email',
+        modes: ['static'],
         satisfiedByToken: 'fields',
         label: 'a field named "email" (or the {{fields}} block)',
       }),
       hook({
         kind: 'field',
         name: 'message',
+        modes: ['static'],
         satisfiedByToken: 'fields',
         label: 'a field named "message" (or the {{fields}} block)',
       }),
       hook({
         kind: 'submit',
+        modes: ['static'],
         satisfiedByToken: 'fields',
         label:
           'a submit control (button/input with type="submit", or a <button> with no type, or the {{fields}} block)',
       }),
       hook({ kind: 'id', id: 'contact', label: 'id="contact" — the #contact anchor target other sections link to' }),
       hook({
+        kind: 'token',
+        token: 'embedHtml',
+        modes: ['embed'],
+        label:
+          '{{embedHtml}} — the platform form embed mount (required in embed mode: the embed builds the working form in the browser; omitting it removes the form)',
+      }),
+      hook({
         kind: 'attr',
         name: 'data-bitpype-form',
         value: '1',
         when: 'bound',
+        modes: ['static'],
         label: 'data-bitpype-form="1" on the form (required when bound to a platform form)',
       }),
       hook({
@@ -329,6 +351,7 @@ const MANIFEST = [
         name: 'data-form-token',
         token: 'formToken',
         when: 'bound',
+        modes: ['static'],
         label: 'data-form-token="{{formToken}}" on the form (required when bound to a platform form)',
       }),
       optHook({
@@ -873,7 +896,13 @@ function scalarTokenRe(name) {
   return new RegExp('\\{\\{\\s*' + escapeRegExp(name) + '\\s*\\}\\}');
 }
 
+function sectionMode(content) {
+  const c = content || {};
+  return String(c.bitpype_embed_html || '').trim() ? 'embed' : 'static';
+}
+
 function hookApplies(h, content) {
+  if (Array.isArray(h.modes) && h.modes.length && !h.modes.includes(sectionMode(content))) return false;
   if (h.when === 'bound') {
     const c = content || {};
     return !!(String(c.form_action || '').trim() || String(c.form_token || '').trim());
@@ -1074,4 +1103,5 @@ module.exports = {
   validateTemplate,
   checkHook,
   hookApplies,
+  sectionMode,
 };
