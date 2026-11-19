@@ -2301,6 +2301,15 @@ function toolDefs({ clientScoped = false } = {}) {
       },
     },
     {
+      name: 'design.templates',
+      description:
+        'Batch 197: the section custom-template hooks manifest — for each section type, whether a fully custom layout is offered via section.template on design.deliver / website.edit sections, the substitution tokens ({{name}}), loops ({{#items}}…{{/items}}) and conditionals ({{#if name}}…{{/if}}) a template may use with each value\'s escaping kind (text/html/url), and the REQUIRED functional hooks a template must keep (form field names, the form action token, anchor ids, data attributes) — a template missing a required hook is rejected at save with the hook named. Types with templates:false are manifest-only in v1, with the reason recorded (chrome, free-HTML, browser-rendered mounts). Read-only; consult BEFORE writing a template so the layout keeps the module\'s contract.',
+      inputSchema: {
+        type: 'object',
+        properties: { type: { type: 'string' } },
+      },
+    },
+    {
       name: 'design.ask',
       description:
         'Ask clarifying question. Pass internal:true for agent-only notes (cross-checks, verdicts) — internal notes are never emailed to the client and do not hold the job in questions_pending.',
@@ -3228,6 +3237,27 @@ async function callParityTool(ws, name, a) {
       return {
         ...summary,
         note: 'Set section.variant to a non-standard id on design.deliver / website.edit sections; omit variant for "standard" (it is never stored). Unknown ids are rejected at deliver with the valid ids named.',
+      };
+    }
+    case 'design.templates': {
+      const templates = require('../src/sectionTemplates');
+      const summary = templates.manifestSummary();
+      const only = a.type != null ? String(a.type).trim() : '';
+      if (only) {
+        const entry = summary.types[only];
+        return {
+          type: only,
+          ...(entry || {}),
+          note: entry
+            ? entry.templates
+              ? 'Set section.template to sanitized HTML + substitution tokens on design.deliver / website.edit sections; every required hook must be present or the save is rejected naming the hook. Omit template for the standard layout.'
+              : `Custom templates are not offered for ${only} in v1: ${entry.reason || 'manifest-only type.'}`
+            : `Unknown section type "${only}". Registered types: ${Object.keys(summary.types).join(', ')}.`,
+        };
+      }
+      return {
+        ...summary,
+        note: 'Set section.template (sanitized HTML + substitution tokens) on design.deliver / website.edit sections for types with templates:true; omit template for the standard layout. A template missing a required hook is rejected at save with the hook named; scripts and event handlers are stripped.',
       };
     }
     case 'fonts.list': {

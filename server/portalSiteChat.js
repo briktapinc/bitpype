@@ -2151,6 +2151,14 @@ function applyClientLayoutSave(workspaceId, leadId, body = {}) {
       throw Object.assign(new Error(variantProblems[0].message), { code: variantProblems[0].code });
     }
 
+    // Batch 197: custom templates get the same re-check — a template
+    // missing a required hook from its type's manifest is refused at
+    // save, naming the hook.
+    const templateProblems = structure.validateSectionTemplates(sections);
+    if (templateProblems.length) {
+      throw Object.assign(new Error(templateProblems[0].message), { code: templateProblems[0].code });
+    }
+
     const pages = JSON.parse(JSON.stringify(site.pages));
     const nextPage = Object.assign({}, pages[pageIndex], { sections: JSON.parse(JSON.stringify(sections)) });
     if (typeof nextPage.html === 'string') delete nextPage.html;

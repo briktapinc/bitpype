@@ -867,6 +867,58 @@ async function loadBrowser() {
   return puppeteer.launch(launchOpts);
 }
 
+/* ------------------------------------------------------------------ */
+/* Batch 197 — custom-template hook audit (in-page, self-contained).   */
+/*                                                                     */
+/* A section that rendered through its custom template carries         */
+/* data-template="custom" on its root (websiteEngine stamps it). For   */
+/* each such root, assert the type's DOM hooks from the manifest       */
+/* (src/sectionTemplates.js domHooksByType — e.g. contact_form must    */
+/* contain a <form> with fields named name/email/message). Types      */
+/* without DOM hooks get the generic non-empty check: a template       */
+/* whose substitution produced an empty section fails here, in QA —    */
+/* never in the visitor's browser. Returns [{ kind:'template-hook',    */
+/* selector, px:0, text }].                                            */
+/* ------------------------------------------------------------------ */
+function measureTemplateHooksInPage(specs) {
+  var out = [];
+  var roots = document.querySelectorAll('[data-template="custom"][data-ws-section-type]');
+  roots.forEach(function (root) {
+    var type = root.getAttribute('data-ws-section-type') || '';
+    var selectors = (specs && specs[type]) || [];
+    if (!selectors.length) {
+      var empty = !root.querySelector('*') && !(root.textContent || '').trim();
+      if (empty) {
+        out.push({
+          kind: 'template-hook',
+          selector: '[data-ws-section-type="' + type + '"]',
+          px: 0,
+          text: 'custom-template section rendered empty',
+        });
+      }
+      return;
+    }
+    for (var i = 0; i < selectors.length; i++) {
+      var sel = selectors[i];
+      var found = false;
+      try {
+        found = root.matches(sel) || !!root.querySelector(sel);
+      } catch (e) {
+        found = false;
+      }
+      if (!found) {
+        out.push({
+          kind: 'template-hook',
+          selector: type + ': ' + sel,
+          px: 0,
+          text: 'custom template is missing required hook ' + sel,
+        });
+      }
+    }
+  });
+  return out;
+}
+
 /**
  * Measure every page at every width. Returns
  * { pass, detail, violations: [{ page, width, kind, selector, px, text? }] }.
@@ -899,6 +951,8 @@ async function assessSpacingInner(pages, theme, opts = {}) {
     sectionInset: floors.sectionInset,
     sectionInsetMobile: floors.sectionInsetMobile,
   };
+  // Batch 197: DOM hooks per template-enabled type (manifest-driven).
+  const templateSpecs = require('../src/sectionTemplates').domHooksByType();
   const browser = await auditBrowser();
   const violations = [];
   let page = null;
@@ -922,6 +976,14 @@ async function assessSpacingInner(pages, theme, opts = {}) {
         const res = await page.evaluate(measureFn, floorsArg);
         for (const v of res.violations || []) {
           violations.push({ page: slug, width, ...v });
+        }
+        // Batch 197: custom-template DOM hooks, asserted once per
+        // page (first width — DOM presence is width-independent).
+        if (width === widths[0]) {
+          const hooks = await page.evaluate(measureTemplateHooksInPage, templateSpecs);
+          for (const v of hooks || []) {
+            violations.push({ page: slug, width, ...v });
+          }
         }
       }
     }
@@ -994,6 +1056,8 @@ async function assessExportedFilesInner(exported, opts = {}) {
     sectionInset: floors.sectionInset,
     sectionInsetMobile: floors.sectionInsetMobile,
   };
+  // Batch 197: DOM hooks per template-enabled type (manifest-driven).
+  const templateSpecs = require('../src/sectionTemplates').domHooksByType();
   const browser = await auditBrowser();
   const violations = [];
   let audited = 0;
@@ -1021,6 +1085,14 @@ async function assessExportedFilesInner(exported, opts = {}) {
         const res = await page.evaluate(measureGeometryInPage, floorsArg);
         for (const v of res.violations || []) {
           violations.push({ page: rel, width, ...v });
+        }
+        // Batch 197: custom-template DOM hooks, asserted once per
+        // file (first width — DOM presence is width-independent).
+        if (width === widths[0]) {
+          const hooks = await page.evaluate(measureTemplateHooksInPage, templateSpecs);
+          for (const v of hooks || []) {
+            violations.push({ page: rel, width, ...v });
+          }
         }
       }
     }
@@ -1056,6 +1128,7 @@ module.exports = {
   _resetTokenCache,
   measureSpacingInPage,
   measureGeometryInPage,
+  measureTemplateHooksInPage,
   assessSpacing,
   assessExportedFiles,
   GEOMETRY_CARD_SELECTOR,

@@ -87,6 +87,29 @@ function validatePages(pages) {
             );
           }
         }
+        // Batch 197 — section custom template, mirroring server/domain.js:
+        // validated against the type's hooks manifest; a template that
+        // drops a required hook is rejected, naming the hook.
+        if (s.template != null) {
+          const templates = require('../sectionTemplates');
+          if (typeof s.template !== 'string' || !s.template.trim()) {
+            throw siteErr(
+              'INVALID_TEMPLATE',
+              `pages[${i}].sections[${j}]: template must be a non-empty HTML string or absent (omit it for the standard layout).`
+            );
+          }
+          if (!templates.isTemplateEnabled(s.type)) {
+            throw siteErr(
+              'TEMPLATE_NOT_AVAILABLE',
+              `pages[${i}].sections[${j}]: ${templates.templateDisabledReason(s.type)}`
+            );
+          }
+          const verdict = templates.validateTemplate(s.type, s.template, s.content || {});
+          if (!verdict.ok) {
+            const first = verdict.problems[0];
+            throw siteErr(first.code, `pages[${i}].sections[${j}]: ${first.message}`);
+          }
+        }
       });
     }
   });

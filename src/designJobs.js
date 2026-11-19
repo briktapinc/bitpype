@@ -2138,6 +2138,13 @@ function validateWebsitePayload(payload, previousPages = [], previousTheme = {})
       const problems = structure.validateSectionVariants(page.sections || []);
       if (problems.length) throw fail(problems[0].code, problems[0].message);
     }
+    // Batch 197 — section custom templates: validated against the
+    // type's hooks manifest; a template missing a required hook is
+    // rejected with the hook named.
+    for (const page of payload.pages) {
+      const problems = structure.validateSectionTemplates(page.sections || []);
+      if (problems.length) throw fail(problems[0].code, problems[0].message);
+    }
   }
   require('./siteContentQuality').assertNoNewDefects(payload.pages, previousPages, payload.theme, previousTheme);
   // Reject class-heavy freeform HTML with missing/unapplied CSS before it becomes live.

@@ -2347,6 +2347,30 @@ function validatePages(pages) {
             );
           }
         }
+        // Batch 197 — section custom template: validated against the
+        // type's hooks manifest (src/sectionTemplates.js). A template
+        // that drops a required functional hook (form field name,
+        // form action, anchor id) is rejected here, naming the hook.
+        if (s.template != null) {
+          const templates = require('../src/sectionTemplates');
+          if (typeof s.template !== 'string' || !s.template.trim()) {
+            throw siteErr(
+              'INVALID_TEMPLATE',
+              `pages[${i}].sections[${j}]: template must be a non-empty HTML string or absent (omit it for the standard layout).`
+            );
+          }
+          if (!templates.isTemplateEnabled(s.type)) {
+            throw siteErr(
+              'TEMPLATE_NOT_AVAILABLE',
+              `pages[${i}].sections[${j}]: ${templates.templateDisabledReason(s.type)}`
+            );
+          }
+          const verdict = templates.validateTemplate(s.type, s.template, s.content || {});
+          if (!verdict.ok) {
+            const first = verdict.problems[0];
+            throw siteErr(first.code, `pages[${i}].sections[${j}]: ${first.message}`);
+          }
+        }
       });
     }
   });
@@ -2372,7 +2396,7 @@ const PAGE_TOP_KEYS = new Set([
   'menuParent',
   'menu_parent',
 ]);
-const SECTION_TOP_KEYS = new Set(['type', 'content', 'cols', 'cells', 'variant']);
+const SECTION_TOP_KEYS = new Set(['type', 'content', 'cols', 'cells', 'variant', 'template']);
 const THEME_TOP_KEYS = new Set([
   'primary',
   'secondary',
@@ -2458,7 +2482,7 @@ function collectSaveShapeWarnings(pages, theme) {
           for (const sk of Object.keys(s)) {
             if (!SECTION_TOP_KEYS.has(sk)) {
               warnings.push(
-                `pages[${i}].sections[${j}] has unknown key "${sk}" — use type, content, cols, cells (columns layout), variant (design variant id).`
+                `pages[${i}].sections[${j}] has unknown key "${sk}" — use type, content, cols, cells (columns layout), variant (design variant id), template (custom layout HTML).`
               );
             }
           }

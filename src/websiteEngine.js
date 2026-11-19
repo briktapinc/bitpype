@@ -34,6 +34,7 @@ const ai = require('./ai');
 const googleFonts = require('../public/js/fonts.js');
 const siteIcons = require('./siteIcons');
 const sectionVariants = require('./sectionVariants');
+const sectionTemplates = require('./sectionTemplates');
 const seoSchema = require('./seoSchema');
 const siteLegal = require('./siteLegal');
 const { assertPublicUrl } = require('../server/urlSafety');
@@ -3662,7 +3663,7 @@ function sectionInlineStyle(section, content) {
  * Stamp data-ws-section-* (+ optional class/style) on the section root tag
  * so theme.customCss can style modules freely while content stays structured.
  */
-function decorateSectionRoot(html, section, content, edit) {
+function decorateSectionRoot(html, section, content, edit, opts) {
   const out = String(html || '');
   if (!out.trim()) return '';
   const type =
@@ -3670,6 +3671,10 @@ function decorateSectionRoot(html, section, content, edit) {
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, '')
       .slice(0, 40) || 'custom';
+  // Batch 197: data-template="custom", stamped ONLY when the section
+  // actually rendered through its custom template — the export QA
+  // browser audit keys its required-hook assertions off this marker.
+  const templateAttr = opts && opts.template ? 'custom' : '';
   // Batch 148: layout-knob classes, stamped ONLY when a knob is set —
   // a knob-free section's root is byte-identical to before.
   const knobClasses = [];
@@ -3692,6 +3697,9 @@ function decorateSectionRoot(html, section, content, edit) {
     }
     if (variantAttr && !/\bdata-variant\s*=/.test(r)) {
       r += ` data-variant="${esc(variantAttr)}"`;
+    }
+    if (templateAttr && !/\bdata-template\s*=/.test(r)) {
+      r += ` data-template="${templateAttr}"`;
     }
     if (edit && Number.isInteger(edit.page) && Number.isInteger(edit.section)) {
       if (!/\bdata-ws-page\s*=/.test(r)) r += ` data-ws-page="${Number(edit.page)}"`;
@@ -3720,6 +3728,350 @@ function decorateSectionRoot(html, section, content, edit) {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Batch 197 — custom template contexts.                               */
+/*                                                                     */
+/* One builder per template-enabled type, producing the { scalars,     */
+/* loops } context src/sectionTemplates.js substitutes. Every value    */
+/* is a FINAL output fragment, built with the same helpers the         */
+/* standard renderer for the type uses (esc / editSpan / safeHref /    */
+/* photoFigure / itemIconHtml), so a template changes layout only —    */
+/* never data, never escaping. Builders never throw on odd content     */
+/* shapes beyond what the standard renderers tolerate, and any throw   */
+/* is caught by renderSectionWithTemplate → standard renderer.         */
+/* ------------------------------------------------------------------ */
+
+function tplItems(c) {
+  return Array.isArray(c.items) ? c.items : [];
+}
+
+const TEMPLATE_CONTEXT_BUILDERS = {
+  hero(c, t, edit) {
+    const hasBg = !!contentBackgroundImageUrl(c);
+    return {
+      scalars: {
+        headline: editSpan(edit, 'headline', c.headline || 'Welcome'),
+        subheadline: c.subheadline ? editSpan(edit, 'subheadline', c.subheadline) : '',
+        ratingBadge: heroRatingBadge(c),
+        ctaText: c.cta_text ? editSpan(edit, 'cta_text', c.cta_text) : '',
+        ctaHref: esc(safeHref(c.cta_href || '#contact')),
+        ctaSecondaryText: c.cta_secondary_text ? editSpan(edit, 'cta_secondary_text', c.cta_secondary_text) : '',
+        ctaSecondaryHref: esc(safeHref(c.cta_secondary_href || '#services')),
+        image: hasBg ? '' : photoFigure(c.image, 'hero-photo'),
+        backgroundImage: esc(contentBackgroundImageUrl(c) || ''),
+      },
+      loops: {},
+    };
+  },
+  benefits(c, t, edit) {
+    return {
+      scalars: {
+        title: c.title ? editSpan(edit, 'title', c.title) : '',
+        subtitle: c.subtitle ? editSpan(edit, 'subtitle', c.subtitle) : '',
+      },
+      loops: {
+        items: tplItems(c).map((it, i) => ({
+          title: editSpan(edit, `items.${i}.title`, it.title || ''),
+          text: editSpan(edit, `items.${i}.text`, it.text || ''),
+          icon: itemIconHtml(it, it.title),
+        })),
+      },
+    };
+  },
+  services(c, t, edit) {
+    return {
+      scalars: {
+        title: c.title ? editSpan(edit, 'title', c.title) : '',
+        subtitle: c.subtitle ? editSpan(edit, 'subtitle', c.subtitle) : '',
+      },
+      loops: {
+        items: tplItems(c).map((it, i) => ({
+          name: editSpan(edit, `items.${i}.name`, it.name || ''),
+          description: editSpan(edit, `items.${i}.description`, it.description || ''),
+          icon: itemIconHtml(it, it.name),
+        })),
+      },
+    };
+  },
+  about(c, t, edit) {
+    const paragraphs = Array.isArray(c.paragraphs) ? c.paragraphs : c.text ? [c.text] : [];
+    return {
+      scalars: { title: c.title ? editSpan(edit, 'title', c.title) : '' },
+      loops: {
+        paragraphs: paragraphs.map((p, i) => ({ text: editSpan(edit, `paragraphs.${i}`, p) })),
+      },
+    };
+  },
+  gallery(c, t, edit) {
+    const images = Array.isArray(c.images) ? c.images.slice(0, 6) : [];
+    const slots = images.length
+      ? images
+      : [{ caption: 'Your photo here' }, { caption: 'Your photo here' }, { caption: 'Your photo here' }];
+    return {
+      scalars: {
+        title: c.title ? editSpan(edit, 'title', c.title) : '',
+        subtitle: c.subtitle ? editSpan(edit, 'subtitle', c.subtitle) : '',
+      },
+      loops: {
+        images: slots.map((im, i) => {
+          const fig = photoFigure(im, 'photo');
+          return {
+            image: fig,
+            placeholder: fig
+              ? ''
+              : `<div class="ph" style="background:${GALLERY_GRADIENTS[i % GALLERY_GRADIENTS.length]}" role="img" aria-label="${esc(im.caption || 'Gallery image')}">${editSpan(edit, `images.${i}.caption`, im.caption || 'Your photo here')}</div>`,
+            src: esc(safeImageUrl(im && typeof im === 'object' ? im.url : im) || ''),
+            caption: esc(im.caption || ''),
+          };
+        }),
+      },
+    };
+  },
+  reviews(c, t, edit) {
+    const reviews = Array.isArray(c.reviews) ? c.reviews : [];
+    return {
+      scalars: {
+        title: c.title ? editSpan(edit, 'title', c.title) : '',
+        subtitle: c.subtitle ? editSpan(edit, 'subtitle', c.subtitle) : '',
+      },
+      loops: {
+        reviews: reviews.map((r, i) => {
+          const stars = Math.max(1, Math.min(5, parseInt(r.stars || 5, 10) || 5));
+          return {
+            text: editSpan(edit, `reviews.${i}.text`, r.text || ''),
+            name: editSpan(edit, `reviews.${i}.name`, r.name || ''),
+            stars: '★'.repeat(stars) + '☆'.repeat(5 - stars),
+            rating: String(stars),
+          };
+        }),
+      },
+    };
+  },
+  cta(c, t, edit) {
+    return {
+      scalars: {
+        title: editSpan(edit, 'title', c.title || 'Get in touch today'),
+        text: c.text ? editSpan(edit, 'text', c.text) : '',
+        buttonText: c.button_text ? editSpan(edit, 'button_text', c.button_text) : '',
+        buttonHref: esc(safeHref(c.button_href || '#contact')),
+      },
+      loops: {},
+    };
+  },
+  contact_form(c, t, edit) {
+    // Mirrors cContactForm's binding rules exactly: a bound platform
+    // form (form_action / form_token stamped at sync) posts to its
+    // public submit URL; otherwise the mailto: fallback; otherwise #.
+    const email = String(c.email || '').trim();
+    const formActionRaw = String(c.form_action || '').trim();
+    const formToken = String(c.form_token || '').trim();
+    const useBitpype = !!(formActionRaw || formToken);
+    const action = useBitpype
+      ? formActionRaw || '#'
+      : email
+        ? `mailto:${email}?subject=${encodeURIComponent(c.mailto_subject || 'Website inquiry')}`
+        : '#';
+    const fields = [
+      '<div class="field"><label for="cf-name">Name</label><input id="cf-name" name="name" required></div>',
+      '<div class="field"><label for="cf-phone">Phone</label><input id="cf-phone" name="phone" type="tel"></div>',
+      '<div class="field"><label for="cf-email">Email</label><input id="cf-email" name="email" type="email" required></div>',
+      '<div class="field"><label for="cf-msg">Message</label><textarea id="cf-msg" name="message" rows="5" required></textarea></div>',
+      '<button class="btn btn-primary" type="submit">Send Message</button>',
+    ].join('');
+    return {
+      scalars: {
+        title: esc(c.title || 'Contact Us'),
+        text: esc(c.text || ''),
+        formAction: esc(action),
+        formToken: esc(formToken),
+        bound: useBitpype ? '1' : '',
+        fields,
+        embedHtml: c.bitpype_embed_html ? sanitizeHtml(String(c.bitpype_embed_html)) : '',
+        phone: esc(c.phone || ''),
+        phoneHref: c.phone ? esc('tel:' + digitsOnly(c.phone)) : '',
+        email: esc(email),
+        emailHref: email ? esc('mailto:' + email) : '',
+        address: esc(c.address || ''),
+      },
+      loops: {},
+    };
+  },
+  map_placeholder(c) {
+    const lines = Array.isArray(c.address_lines) ? c.address_lines : c.address ? [c.address] : [];
+    return {
+      scalars: { title: esc(c.title || 'Find Us') },
+      loops: { lines: lines.map((line) => ({ text: esc(line) })) },
+    };
+  },
+  hours(c) {
+    const hours = Array.isArray(c.hours) ? c.hours : [];
+    return {
+      scalars: { title: esc(c.title || 'Business Hours') },
+      loops: {
+        hours: hours.map((h) => ({
+          day: esc(h.day || ''),
+          open: esc(h.open || ''),
+          close: esc(h.close || ''),
+          range: esc(`${h.open || ''} – ${h.close || ''}`),
+        })),
+      },
+    };
+  },
+  faq(c, t, edit) {
+    return {
+      scalars: { title: c.title ? editSpan(edit, 'title', c.title) : '' },
+      loops: {
+        items: tplItems(c).map((it, i) => ({
+          q: editSpan(edit, `items.${i}.q`, it.q || it.question || ''),
+          a: editSpan(edit, `items.${i}.a`, it.a || it.answer || ''),
+        })),
+      },
+    };
+  },
+  booking_button(c) {
+    const href = c.href
+      ? safeHref(c.href)
+      : c.phone
+        ? 'tel:' + digitsOnly(c.phone)
+        : '#contact';
+    return {
+      scalars: {
+        title: esc(c.title || ''),
+        text: esc(c.text || 'Call Now'),
+        href: esc(href),
+        subtext: esc(c.subtext || ''),
+      },
+      loops: {},
+    };
+  },
+  social_links(c) {
+    const links = Array.isArray(c.links) ? c.links : [];
+    return {
+      scalars: { title: esc(c.title || 'Follow Us') },
+      loops: {
+        links: links.map((l) => ({
+          href: esc(safeHref(l.url || l.href || '#')),
+          label: esc(l.label || l.network || l.url || ''),
+          network: esc(l.network || ''),
+          icon: SOCIAL_ICONS[String(l.network || '').toLowerCase()] || '',
+        })),
+      },
+    };
+  },
+  custom(c, t, edit) {
+    const button = c.button && typeof c.button === 'object' ? c.button : null;
+    return {
+      scalars: {
+        heading: c.heading || c.title ? editSpan(edit, 'heading', c.heading || c.title) : '',
+        body: c.body || c.text ? editSpan(edit, 'body', c.body || c.text) : '',
+        image: photoFigure(c.image, 'photo'),
+        buttonText: button && button.text ? editSpan(edit, 'button.text', button.text) : '',
+        buttonHref: esc(safeHref(button ? button.href : '#')),
+        html: c.html ? markEditableSectionHtml(String(c.html), edit) : '',
+      },
+      loops: {},
+    };
+  },
+  text(c, t, edit) {
+    return {
+      scalars: {
+        heading: c.heading || c.title ? editSpan(edit, 'heading', c.heading || c.title) : '',
+        body: c.body || c.text ? editSpan(edit, 'body', c.body || c.text) : '',
+        html: c.html ? markEditableSectionHtml(String(c.html), edit) : '',
+      },
+      loops: {},
+    };
+  },
+  text_image(c, t, edit) {
+    const fig = photoFigure(c.image, 'photo');
+    const button = c.button && typeof c.button === 'object' ? c.button : null;
+    return {
+      scalars: {
+        heading: c.heading || c.title ? editSpan(edit, 'heading', c.heading || c.title) : '',
+        body: c.body || c.text ? editSpan(edit, 'body', c.body || c.text) : '',
+        image:
+          fig ||
+          '<div class="ph" style="background:linear-gradient(135deg,#e5e7eb,#d1d5db)" role="img" aria-label="Image"></div>',
+        imageSrc: esc(safeImageUrl(c.image && typeof c.image === 'object' ? c.image.url : c.image) || ''),
+        buttonText: button && button.text ? editSpan(edit, 'button.text', button.text) : '',
+        buttonHref: esc(safeHref(button ? button.href : '#')),
+        imageSide: String(c.image_position || c.imagePosition || 'right').toLowerCase() === 'left' ? 'left' : 'right',
+      },
+      loops: {},
+    };
+  },
+  cards(c, t, edit) {
+    return {
+      scalars: {
+        title: c.title ? editSpan(edit, 'title', c.title) : '',
+        subtitle: c.subtitle ? editSpan(edit, 'subtitle', c.subtitle) : '',
+      },
+      loops: {
+        items: tplItems(c).map((it, i) => ({
+          title: editSpan(edit, `items.${i}.title`, it.title || it.name || ''),
+          text: editSpan(edit, `items.${i}.text`, it.text || it.description || ''),
+          image: photoFigure(it.image, 'photo'),
+        })),
+      },
+    };
+  },
+  heading(c, t, edit) {
+    const level = [1, 2, 3, 4].includes(Number(c.level)) ? Number(c.level) : 2;
+    return {
+      scalars: {
+        heading: editSpan(edit, 'heading', c.heading || c.title || c.text || ''),
+        level: String(level),
+        tag: 'h' + level,
+      },
+      loops: {},
+    };
+  },
+  image(c) {
+    const fig = photoFigure(c.image, 'photo');
+    return {
+      scalars: {
+        image:
+          fig ||
+          '<div class="ph" style="background:linear-gradient(135deg,#e5e7eb,#d1d5db);min-height:180px;border-radius:8px" role="img" aria-label="Image"></div>',
+        src: esc(safeImageUrl(c.image && typeof c.image === 'object' ? c.image.url : c.image) || ''),
+        caption: esc(c.caption || (c.image && typeof c.image === 'object' ? c.image.alt || '' : '') || ''),
+        alt: esc(c.image && typeof c.image === 'object' ? c.image.alt || '' : ''),
+      },
+      loops: {},
+    };
+  },
+};
+
+/**
+ * Render a section through its stored custom template (Batch 197).
+ * Returns the rendered HTML, or null when the section has no usable
+ * template — the caller then runs the standard renderer. Pipeline:
+ * sanitize the template FIRST (scripts/handlers stripped; the token
+ * syntax survives sanitizeHtml untouched), then substitute the
+ * builder's pre-escaped values. ANY error → null (silent fallback):
+ * a broken template can never break a page. The portal inline-edit
+ * canvas (edit.editing) keeps the standard renderer so Batch 147
+ * field editing is unaffected; templates apply to export, preview
+ * and public renders.
+ */
+function renderSectionWithTemplate(section, content, t, edit) {
+  const stored = sectionTemplates.templateOf(section);
+  if (!stored) return null;
+  if (!sectionTemplates.isTemplateEnabled(section.type)) return null;
+  if (edit && edit.editing) return null;
+  const builder = TEMPLATE_CONTEXT_BUILDERS[section.type];
+  if (!builder) return null;
+  try {
+    const clean = sanitizeHtml(stored);
+    const context = builder(content, t, edit || null, section);
+    const out = sectionTemplates.renderTemplate(clean, context);
+    if (!out || !String(out).trim()) return null;
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Render one section to HTML. Unknown types use the generic custom block
  * so an agent is not stuck to the built-in list. Text is escaped.
@@ -3742,6 +4094,14 @@ function sectionToHtml(section, theme, edit) {
         : null;
     const fn = variantFn || RENDERERS[section.type] || cCustom;
     const content = section.content && typeof section.content === 'object' ? section.content : {};
+    // Batch 197 — a stored custom template (validated at save against
+    // the type's hooks manifest) renders the section through the
+    // agent's own layout; any failure falls through to the standard
+    // renderer below, silently.
+    const templated = renderSectionWithTemplate(section, content, t, edit || null);
+    if (templated != null) {
+      return decorateSectionRoot(templated, section, content, edit || null, { template: true });
+    }
     const body =
       fn === cCustom && !RENDERERS[section.type]
         ? Object.assign({ heading: content.heading || content.title || section.type }, content)
@@ -7462,6 +7822,41 @@ async function qaSite(db, websiteId) {
       badVariants.length
         ? `Unknown section variant(s): ${badVariants.slice(0, 6).join('; ')}`
         : 'All section variants are registry ids.'
+    );
+  }
+
+  // 7c. Batch 197 — stored custom templates must validate against
+  // their type's hooks manifest (src/sectionTemplates.js): parseable,
+  // template-enabled type, every required hook present. Save paths
+  // enforce this; QA reports hand-edited or legacy data that slipped
+  // through, naming the missing hook(s). (The rendered-DOM half of
+  // the contract is asserted by the export browser audit.)
+  {
+    const badTemplates = [];
+    for (const p of pages) {
+      for (const s of p.sections || []) {
+        if (!s || !('template' in s)) continue;
+        const where = `${p.slug || '/'}: ${s.type}`;
+        if (typeof s.template !== 'string' || !s.template.trim()) {
+          badTemplates.push(`${where} template must be a non-empty string or absent`);
+          continue;
+        }
+        if (!sectionTemplates.isTemplateEnabled(s.type)) {
+          badTemplates.push(`${where} ${sectionTemplates.templateDisabledReason(s.type)}`);
+          continue;
+        }
+        const verdict = sectionTemplates.validateTemplate(s.type, s.template, s.content || {});
+        for (const prob of verdict.problems) {
+          badTemplates.push(`${where} template: ${prob.message}`);
+        }
+      }
+    }
+    check(
+      'section-templates-valid',
+      badTemplates.length === 0,
+      badTemplates.length
+        ? `Invalid section template(s): ${badTemplates.slice(0, 6).join('; ')}`
+        : 'All section templates satisfy their hooks manifest.'
     );
   }
 

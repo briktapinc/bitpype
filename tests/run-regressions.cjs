@@ -28,6 +28,7 @@ const checks = [
   'batch194-portal-learning-regressions',
   'batch195-training-video-upload-regressions',
   'batch196-training-format-switch-regressions',
+  'batch197-module-custom-layouts-regressions',
   'google-reviews-regressions',
   'seo-foundations-regressions',
   'blog-static-regressions',

@@ -1630,6 +1630,7 @@ function validateEditorSections(sections) {
 /* ------------------------------------------------------------------ */
 
 const sectionVariants = require('./sectionVariants');
+const sectionTemplates = require('./sectionTemplates');
 
 function getSectionVariant(section) {
   return sectionVariants.variantOf(section);
@@ -1710,6 +1711,97 @@ function validateSectionVariants(sections) {
           sectionVariants.idsFor(type).join(', ') || '(none — this type has no variants)'
         }.`,
       });
+    }
+  });
+  return problems;
+}
+
+/* ------------------------------------------------------------------ */
+/* Section custom templates (Batch 197) — section.template             */
+/*                                                                     */
+/* Same storage discipline as variants (Batch 148/188): the property   */
+/* exists ONLY when a custom template is set, so an unset section      */
+/* renders byte-identically to before. setSectionTemplate validates    */
+/* against the type's hooks manifest (src/sectionTemplates.js), so a   */
+/* template that drops a required functional hook (form field name,    */
+/* form action, anchor id) can never be stored through the model       */
+/* layer.                                                              */
+/* ------------------------------------------------------------------ */
+
+/** The section's custom template; '' when unset (standard layout). */
+function getSectionTemplate(section) {
+  return sectionTemplates.templateOf(section || {});
+}
+
+/**
+ * Set or clear a section's custom template. '' / null / undefined
+ * clears (the property is deleted — unset stays unset). Throws a
+ * coded error (mirroring layoutKnobError) when the value is not a
+ * string, when the type does not offer templates in v1, or when the
+ * template fails manifest validation — the error names the missing
+ * hook(s).
+ */
+function setSectionTemplate(section, template) {
+  if (!section || typeof section !== 'object') {
+    throw layoutKnobError('INVALID_SECTION', 'setSectionTemplate needs a section object.');
+  }
+  if (template === undefined || template === null || template === '') {
+    delete section.template;
+    return section;
+  }
+  if (typeof template !== 'string') {
+    throw layoutKnobError('INVALID_TEMPLATE', 'template must be an HTML string (or empty to clear it).');
+  }
+  if (!sectionTemplates.isTemplateEnabled(section.type)) {
+    throw layoutKnobError('TEMPLATE_NOT_AVAILABLE', sectionTemplates.templateDisabledReason(section.type));
+  }
+  const verdict = sectionTemplates.validateTemplate(section.type, template, section.content || {});
+  if (!verdict.ok) {
+    const first = verdict.problems[0];
+    throw layoutKnobError(first.code, first.message);
+  }
+  section.template = template;
+  return section;
+}
+
+/** True when the section carries a custom template. */
+function hasSectionTemplate(section) {
+  return getSectionTemplate(section) !== '';
+}
+
+/**
+ * Save-path validation for section templates: returns { code,
+ * message } problems — empty when every stored template parses,
+ * belongs to a template-enabled type, and keeps every required hook
+ * from its manifest entry. Mirrors validateSectionVariants; used by
+ * the section-editor save path and the design-job payload validator
+ * (the remaining write paths run sectionTemplates.validateTemplate
+ * directly).
+ */
+function validateSectionTemplates(sections) {
+  const problems = [];
+  if (!Array.isArray(sections)) return problems;
+  sections.forEach((section, index) => {
+    if (!section || typeof section !== 'object') return;
+    if (!('template' in section)) return;
+    const where = `section ${index + 1} (${section.type || 'custom'})`;
+    if (typeof section.template !== 'string' || !section.template.trim()) {
+      problems.push({
+        code: 'INVALID_TEMPLATE',
+        message: `${where}: template must be a non-empty HTML string or absent (omit it for the standard layout).`,
+      });
+      return;
+    }
+    if (!sectionTemplates.isTemplateEnabled(section.type)) {
+      problems.push({
+        code: 'TEMPLATE_NOT_AVAILABLE',
+        message: `${where}: ${sectionTemplates.templateDisabledReason(section.type)}`,
+      });
+      return;
+    }
+    const verdict = sectionTemplates.validateTemplate(section.type, section.template, section.content || {});
+    for (const p of verdict.problems) {
+      problems.push({ code: p.code, message: `${where}: ${p.message}` });
     }
   });
   return problems;
@@ -1884,6 +1976,12 @@ function describeEditorSection(section, index, resolveModuleType) {
       bestFor: e.bestFor,
       avoidWhen: e.avoidWhen,
     })),
+    // Batch 197: custom template availability for this type — the
+    // manifest decides (chrome and the Family B mounts are fenced);
+    // hasTemplate reports whether one is currently stored.
+    canTemplate: sectionTemplates.isTemplateEnabled(t),
+    hasTemplate: hasSectionTemplate(section),
+    templateNote: sectionTemplates.isTemplateEnabled(t) ? null : sectionTemplates.templateDisabledReason(t),
   };
 }
 
@@ -1943,6 +2041,10 @@ module.exports = {
   getSectionVariant,
   setSectionVariant,
   validateSectionVariants,
+  getSectionTemplate,
+  setSectionTemplate,
+  hasSectionTemplate,
+  validateSectionTemplates,
   LAYOUT_NON_BAND_MODULE_TYPES,
   isLayoutMovable,
   moveSectionToIndex,
