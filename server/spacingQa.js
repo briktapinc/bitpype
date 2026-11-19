@@ -1005,6 +1005,57 @@ function measureSectionScriptsInPage() {
   return out;
 }
 
+/* ------------------------------------------------------------------ */
+/* Batch 200 — EMBED SETTLE. Module mounts ([data-bitpype-module])    */
+/* and form mounts ([data-bitpype-form-embed]) render in the browser  */
+/* AFTER the static HTML lands: module-embed.js / form-embed.js       */
+/* fetch their payload and replace the mount's innerHTML. Measuring   */
+/* at domcontentloaded measured the EMPTY mounts, so embed content —  */
+/* and any overhang it creates — was invisible to every audit in the  */
+/* chain (the Victoria newsletter embed overflowed the viewport by    */
+/* exactly the band inset at every width while exports shipped).      */
+/* The settle poll waits until every mount carries rendered content   */
+/* (anything beyond the lone .bp-mod-loading placeholder), the        */
+/* loader is provably absent/blocked in this environment (gate        */
+/* browsers cannot reach the module API — the mounts can never        */
+/* render there, so waiting out the cap would only burn budget), or   */
+/* the cap elapses. Measurement then proceeds on whatever rendered;   */
+/* the audit result records what it saw.                              */
+/* ------------------------------------------------------------------ */
+function embedsSettledInPage() {
+  var mounts = document.querySelectorAll('[data-bitpype-module], [data-bitpype-form-embed]');
+  var rendered = 0;
+  mounts.forEach(function (m) {
+    var kids = m.children;
+    var done = kids.length > 0 && !(kids.length === 1 && kids[0].classList.contains('bp-mod-loading'));
+    if (done) rendered += 1;
+  });
+  return { mounts: mounts.length, rendered: rendered, settled: rendered === mounts.length };
+}
+
+const MOUNT_MARKER_RE = /data-bitpype-module|data-bitpype-form-embed/;
+
+async function waitForEmbedSettle(page, opts = {}) {
+  const capMs = Number(opts.capMs) > 0 ? Number(opts.capMs) : 6000;
+  const graceMs = 2500; // loader-absent grace before giving the mounts up as env-blocked
+  const t0 = Date.now();
+  let last = { mounts: 0, rendered: 0, settled: true };
+  for (;;) {
+    const snap = await page.evaluate(embedsSettledInPage).catch(() => null);
+    if (snap) last = snap;
+    if (last.settled) return { ...last, waitedMs: Date.now() - t0, timedOut: false, loaderAbsent: false };
+    const elapsed = Date.now() - t0;
+    if (elapsed >= capMs) return { ...last, waitedMs: elapsed, timedOut: last.mounts > 0, loaderAbsent: false };
+    if (elapsed >= graceMs) {
+      const booted = await page
+        .evaluate(() => !!(window.BitpypeModules && window.BitpypeModules.__booted))
+        .catch(() => false);
+      if (!booted) return { ...last, waitedMs: elapsed, timedOut: false, loaderAbsent: true };
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
 const SCRIPT_MARKER_RE = /data-ws-section-js|data-bp-lib|data-ws-theme-js|data-ws-page-js/;
 
 function hostsDeclaredInHtml(html) {
@@ -1172,8 +1223,55 @@ async function auditScriptPass(page, html, templateSpecs) {
  * Throws (PUPPETEER_MISSING / launch / render errors) when the check
  * cannot run at all — qaSite records the established skip-pass.
  */
+// Batch 200: load a document into an audit page, surviving ONE
+// wedged page. A setContent timeout can leave the renderer wedged
+// behind interception-paused requests (proven trigger: an
+// unresolvable embed host stalling the guard's DNS validation) —
+// every later evaluate then hangs for the full protocol timeout,
+// and an audit that simply presses on burns its entire budget on a
+// single page. Discarding the wedged page unwedges the audit; a
+// second stall means the ENVIRONMENT cannot load these pages, so
+// the audit aborts with a clear SPACING_AUDIT_ENV error and the
+// caller fails closed — fast, instead of after minutes of grinding.
+// Returns { page, recreated } — page may be a fresh replacement.
+async function loadIntoAuditPage(browser, page, viewport, html, alreadyRecreated) {
+  await page.setViewport(viewport);
+  const ok = await page
+    .setContent(html, { waitUntil: 'domcontentloaded', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false);
+  if (ok) return { page, recreated: alreadyRecreated };
+  if (alreadyRecreated) {
+    const err = new Error(
+      'spacing audit aborted: the audit browser could not load the pages (repeated navigation stalls)'
+    );
+    err.code = 'SPACING_AUDIT_ENV';
+    throw err;
+  }
+  try {
+    await page.close();
+  } catch {
+    /* wedged page — closing is best-effort */
+  }
+  const fresh = await browser.newPage();
+  await require('./browserGuard').guardBrowserPage(fresh);
+  await fresh.setViewport(viewport);
+  const ok2 = await fresh
+    .setContent(html, { waitUntil: 'domcontentloaded', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!ok2) {
+    const err = new Error(
+      'spacing audit aborted: the audit browser could not load the pages (repeated navigation stalls)'
+    );
+    err.code = 'SPACING_AUDIT_ENV';
+    throw err;
+  }
+  return { page: fresh, recreated: true };
+}
+
 async function assessSpacing(pages, theme, opts = {}) {
-  const budget = Number(opts.budgetMs) > 0 ? Number(opts.budgetMs) : 60000;
+  const budget = Number(opts.budgetMs) > 0 ? Number(opts.budgetMs) : 120000;
   return withAuditDeadline(() => assessSpacingInner(pages, theme, opts), budget, 'qa');
 }
 async function assessSpacingInner(pages, theme, opts = {}) {
@@ -1203,6 +1301,13 @@ async function assessSpacingInner(pages, theme, opts = {}) {
   const browser = await auditBrowser();
   const violations = [];
   let page = null;
+  // Batch 200: navigation stalls are handled by discarding a
+  // wedged page once and aborting on a second stall (see
+  // loadIntoAuditPage); once one page proves the embed loader
+  // cannot boot in this environment, settle waits are skipped for
+  // the rest of the audit.
+  let embedsBlocked = false;
+  let pageRecreated = false;
   try {
     page = await browser.newPage();
     // Batch 145 (external review F11): the spacing browser shares
@@ -1211,15 +1316,36 @@ async function assessSpacingInner(pages, theme, opts = {}) {
     for (const p of list) {
       const html = renderPage(p, list, theme);
       const slug = String((p && p.slug) || 'page');
+      // Batch 200: load once per page, measure every width by
+      // resizing (see assessExportedFilesInner for the rationale).
+      // The emulation flags (isMobile/hasTouch) stay OFF at every
+      // width: flipping them mid-audit makes Chrome reload the
+      // document for the new emulation mode, and that reload —
+      // through the guard, over slow subresources — times out and
+      // fails the file (proven in production). Layout width, which
+      // is all the spacing law measures, follows the viewport
+      // width alone.
+      const firstViewport = {
+        width: widths[0],
+        height: widths[0] <= 700 ? 844 : 960,
+        deviceScaleFactor: 1,
+      };
+      const loadRes = await loadIntoAuditPage(browser, page, firstViewport, html, pageRecreated);
+      page = loadRes.page;
+      pageRecreated = loadRes.recreated;
+      if (MOUNT_MARKER_RE.test(html) && !embedsBlocked) {
+        const settle = await waitForEmbedSettle(page, { capMs: 6000 });
+        if (settle.loaderAbsent) embedsBlocked = true;
+      }
       for (const width of widths) {
-        await page.setViewport({
-          width,
-          height: width <= 700 ? 844 : 960,
-          deviceScaleFactor: 1,
-          isMobile: width <= 700,
-          hasTouch: width <= 700,
-        });
-        await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        if (width !== widths[0]) {
+          await page.setViewport({
+            width,
+            height: width <= 700 ? 844 : 960,
+            deviceScaleFactor: 1,
+          });
+          await new Promise((r) => setTimeout(r, 150));
+        }
         const res = await page.evaluate(measureFn, floorsArg);
         for (const v of res.violations || []) {
           violations.push({ page: slug, width, ...v });
@@ -1271,13 +1397,17 @@ async function assessSpacingInner(pages, theme, opts = {}) {
  * so a build's measured state travels with every publish. Index page
  * first, capped file count (detail shells share the item templates —
  * the cap keeps the audit bounded on catalogue-heavy sites).
- * Throws (PUPPETEER_MISSING etc.) when it cannot run; the caller
- * records a skipped audit rather than blocking the export.
+ * Throws (PUPPETEER_MISSING etc.) when it cannot run at all, and
+ * reports per-file failures in filesFailed when individual files
+ * cannot be measured. Batch 200: the caller (domain's
+ * attachSpacingAudit) treats ANY incompleteness — a throw, a failed
+ * file, or fewer files measured than selected — as a failed export,
+ * never a shipped-unaudited one.
  */
 const EXPORT_AUDIT_MAX_FILES = 12;
 
 async function assessExportedFiles(exported, opts = {}) {
-  const budget = Number(opts.budgetMs) > 0 ? Number(opts.budgetMs) : 60000;
+  const budget = Number(opts.budgetMs) > 0 ? Number(opts.budgetMs) : 360000;
   return withAuditDeadline(() => assessExportedFilesInner(exported, opts), budget, 'export');
 }
 async function assessExportedFilesInner(exported, opts = {}) {
@@ -1308,8 +1438,17 @@ async function assessExportedFilesInner(exported, opts = {}) {
   const browser = await auditBrowser();
   const violations = [];
   const scriptWarnings = [];
+  const filesFailed = [];
+  const embeds = { mounts: 0, rendered: 0 };
   let audited = 0;
   let page = null;
+  // Batch 200: the settle wait below is what lets the audit measure
+  // the page AFTER module embeds render (the pre-embed DOM hid
+  // every embed overhang). Navigation stalls are handled by
+  // discarding a wedged page once and aborting on a second stall —
+  // see loadIntoAuditPage for why.
+  let embedsBlocked = false;
+  let pageRecreated = false;
   try {
     page = await browser.newPage();
     await require('./browserGuard').guardBrowserPage(page);
@@ -1317,48 +1456,98 @@ async function assessExportedFilesInner(exported, opts = {}) {
       let html;
       try {
         html = fs.readFileSync(path.join(dir, rel), 'utf8');
-      } catch {
+      } catch (e) {
+        filesFailed.push({ file: rel, error: `unreadable: ${String((e && e.message) || e).slice(0, 120)}` });
         continue;
       }
-      audited += 1;
-      for (const width of widths) {
-        await page.setViewport({
-          width,
-          height: width <= 700 ? 844 : 960,
-          deviceScaleFactor: 1,
-          isMobile: width <= 700,
-          hasTouch: width <= 700,
-        });
-        await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        const res = await page.evaluate(measureGeometryInPage, floorsArg);
-        for (const v of res.violations || []) {
-          violations.push({ page: rel, width, ...v });
-        }
-        // Batch 197: custom-template DOM hooks, asserted once per
-        // file (first width — DOM presence is width-independent).
-        if (width === widths[0]) {
-          const hooks = await page.evaluate(measureTemplateHooksInPage, templateSpecs);
-          for (const v of hooks || []) {
-            violations.push({ page: rel, width, ...v });
-          }
-        }
-      }
-      // Batch 199: the script pass — a fresh load with listeners,
-      // only for files carrying script markers (spec §7.2).
-      if (SCRIPT_MARKER_RE.test(html)) {
-        await page.setViewport({
+      try {
+        // Batch 200: load the document ONCE per file and measure
+        // every width by resizing the viewport. Reloading per width
+        // tripled the audit's cost in slow-subresource environments
+        // (production's hairpin made a 9-file export audit exceed
+        // its whole budget without measuring anything like all of
+        // it); the rendered DOM — embeds included — persists across
+        // a resize, and geometry reads force a live reflow at the
+        // new width, so per-width measurement stays exact. The
+        // emulation flags (isMobile/hasTouch) stay OFF at every
+        // width — flipping them makes Chrome reload the document
+        // mid-audit and the reload times out (proven in
+        // production); layout width follows the viewport width.
+        const firstViewport = {
           width: widths[0],
           height: widths[0] <= 700 ? 844 : 960,
           deviceScaleFactor: 1,
-          isMobile: widths[0] <= 700,
-          hasTouch: widths[0] <= 700,
-        });
-        const sp = await auditScriptPass(page, html, templateSpecs);
-        for (const v of sp.violations || []) {
-          violations.push({ page: rel, width: widths[0], ...v });
+        };
+        const loadRes = await loadIntoAuditPage(browser, page, firstViewport, html, pageRecreated);
+        page = loadRes.page;
+        pageRecreated = loadRes.recreated;
+        if (MOUNT_MARKER_RE.test(html) && !embedsBlocked) {
+          const settle = await waitForEmbedSettle(page, { capMs: 6000 });
+          if (settle.loaderAbsent) embedsBlocked = true;
+          embeds.mounts += settle.mounts;
+          embeds.rendered += settle.rendered;
         }
-        for (const w of sp.warnings || []) {
-          scriptWarnings.push(`${rel}: ${w}`);
+        for (const width of widths) {
+          if (width !== widths[0]) {
+            await page.setViewport({
+              width,
+              height: width <= 700 ? 844 : 960,
+              deviceScaleFactor: 1,
+            });
+            // Let resize-driven re-renders land before measuring.
+            await new Promise((r) => setTimeout(r, 150));
+          }
+          const res = await page.evaluate(measureGeometryInPage, floorsArg);
+          for (const v of res.violations || []) {
+            violations.push({ page: rel, width, ...v });
+          }
+          // Batch 197: custom-template DOM hooks, asserted once per
+          // file (first width — DOM presence is width-independent).
+          if (width === widths[0]) {
+            const hooks = await page.evaluate(measureTemplateHooksInPage, templateSpecs);
+            for (const v of hooks || []) {
+              violations.push({ page: rel, width, ...v });
+            }
+          }
+        }
+        audited += 1;
+      } catch (e) {
+        // An environment abort is audit-wide, not per-file: the
+        // caller must fail closed, not record 12 identical failures.
+        if (e && e.code === 'SPACING_AUDIT_ENV') throw e;
+        filesFailed.push({ file: rel, error: String((e && e.message) || e).slice(0, 160) });
+        continue;
+      }
+      // Batch 199: the script pass — a fresh load with listeners,
+      // only for files carrying script markers (spec §7.2).
+      // Batch 200: the pass runs in a FRESH browser context. On the
+      // shared geometry page the pass's load is served from the
+      // browser's HTTP cache, and a script fetch that failed during
+      // the geometry load (negative cache) is never re-requested —
+      // a dynamically injected off-allowlist script, the exact case
+      // this pass exists to catch, went unobserved (proven: the
+      // request event never fires on the second load of the same
+      // document). A fresh context has a cold cache, so every script
+      // the page loads is requested — and recorded — again.
+      if (SCRIPT_MARKER_RE.test(html)) {
+        const ctx = await browser.createBrowserContext();
+        try {
+          const spPage = await ctx.newPage();
+          await require('./browserGuard').guardBrowserPage(spPage);
+          await spPage.setViewport({
+            width: widths[0],
+            height: widths[0] <= 700 ? 844 : 960,
+            deviceScaleFactor: 1,
+          });
+          const sp = await auditScriptPass(spPage, html, templateSpecs);
+          for (const v of sp.violations || []) {
+            violations.push({ page: rel, width: widths[0], ...v });
+          }
+          for (const w of sp.warnings || []) {
+            scriptWarnings.push(`${rel}: ${w}`);
+          }
+        } finally {
+          await ctx.close().catch(() => {});
         }
       }
     }
@@ -1381,6 +1570,9 @@ async function assessExportedFilesInner(exported, opts = {}) {
     totalViolations: violations.length,
     byKind,
     filesAudited: audited,
+    filesSelected: files.length,
+    filesFailed,
+    embeds,
     filesTotal: all.length,
     filesCapped: all.length > files.length,
     violations: violations.slice(0, 40),
@@ -1397,6 +1589,8 @@ module.exports = {
   measureGeometryInPage,
   measureTemplateHooksInPage,
   measureSectionScriptsInPage,
+  embedsSettledInPage,
+  waitForEmbedSettle,
   assessSpacing,
   assessExportedFiles,
   GEOMETRY_CARD_SELECTOR,

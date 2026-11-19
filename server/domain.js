@@ -1990,22 +1990,54 @@ async function sitesQa(workspaceId, id) {
 // HTML (post module-sync, post injectors) with spacingQa's geometry
 // audit and stamp the summary onto the export result + the tenant
 // settings row spacing_audit.<siteId>, so a site's measured spacing
-// state travels with every export/preview. Never throws: a browser-
-// less environment records a skipped audit instead of blocking the
-// export (qaSite's spacing check remains the fail-loud gate).
+// state travels with every export/preview.
+//
+// Batch 200 — FAIL CLOSED (Ely, 2026-11-19: "that guy in the code who
+// needs to enforce margins and paddings is not doing his work"). The
+// Batch 185 contract recorded a SKIPPED audit and shipped the export
+// anyway; on Victoria the audit timed out twice, stamped
+// filesAudited: 0, and the export completed with no geometry audit at
+// all — silently. Now: the audit gets two attempts; a throw, a failed
+// file, or fewer files measured than selected fails the EXPORT with
+// a clear reason (code SPACING_AUDIT_FAILED). A completed audit —
+// clean or with violations — still exports; violations bite through
+// qaSite's spacing check, which reads this stamp and refuses the
+// QA-passed state (see websiteEngine.qaSite).
 async function attachSpacingAudit(db, siteId, exported) {
-  let audit;
-  try {
-    audit = await require('./spacingQa').assessExportedFiles(exported);
-  } catch (e) {
-    audit = {
-      pass: null,
-      skipped: String((e && e.message) || e).slice(0, 200),
-      totalViolations: null,
-      byKind: {},
-      filesAudited: 0,
-      auditedAt: new Date().toISOString(),
-    };
+  const spacingQa = require('./spacingQa');
+  let audit = null;
+  let lastReason = '';
+  for (let attempt = 1; attempt <= 2 && !audit; attempt++) {
+    try {
+      const res = await spacingQa.assessExportedFiles(exported);
+      const selected =
+        res && res.filesSelected != null ? Number(res.filesSelected) : Number((res && res.filesAudited) || 0);
+      const failed = (res && res.filesFailed) || [];
+      if (res && (Number(res.filesTotal) === 0 || (Number(res.filesAudited) >= selected && failed.length === 0))) {
+        audit = res;
+      } else {
+        lastReason =
+          `incomplete audit: measured ${res ? res.filesAudited : 0} of ${selected} selected file(s)` +
+          (failed.length ? `; failed: ${failed.map((f) => f.file).join(', ')}` : '');
+        // A retry exists for TRANSIENT incompleteness (one file
+        // wedged, a browser hiccup). An attempt that measured ZERO
+        // of the selected files is systematically unmeasurable in
+        // this environment — a second identical attempt would only
+        // burn another full audit budget before failing the same
+        // way, so fail closed immediately.
+        if (res && selected > 0 && Number(res.filesAudited) === 0) break;
+      }
+    } catch (e) {
+      lastReason = String((e && e.message) || e).slice(0, 200);
+    }
+  }
+  if (!audit) {
+    const err = new Error(
+      `Export blocked: the spacing audit could not complete (${lastReason || 'unknown error'}). ` +
+        'The export was NOT shipped unaudited — fix the cause or retry the export.'
+    );
+    err.code = 'SPACING_AUDIT_FAILED';
+    throw err;
   }
   try {
     const slim = { ...audit, violations: (audit.violations || []).slice(0, 10) };

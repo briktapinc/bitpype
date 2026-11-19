@@ -756,15 +756,25 @@ function group(name, n) {
       const scriptV = (audit.violations || []).filter((v) => v.kind === 'script');
       assert.ok(!scriptV.some((v) => v.page === 'clean.html'), 'the clean scripted page draws no script violations');
       n++;
+      // Batch 200 instrument fix (same pattern as the batch115/173
+      // hardenings — assertion INTENT unchanged): audit violations
+      // carry their message in `text`, never `detail`, and the stamp
+      // violations name the section in `selector` with the reason in
+      // `text` ("section script (hero) threw at runtime" /
+      // "skipped: lib-missing"). The original haystacks (selector +
+      // detail) could never match either stamp, so these assertions
+      // only ever passed while Part 8 was being skipped wholesale
+      // under the old 60s audit budget. Match selector + text, the
+      // fields the audit actually emits.
       assert.ok(
         scriptV.some(
-          (v) => v.page === 'throwing.html' && /threw|pageerror/i.test(`${v.selector || ''} ${v.detail || ''}`)
+          (v) => v.page === 'throwing.html' && /threw|pageerror/i.test(`${v.selector || ''} ${v.text || ''}`)
         ),
         'a throwing script is flagged'
       );
       n++;
       assert.ok(
-        scriptV.some((v) => v.page === 'libmiss.html' && /lib-missing/.test(v.selector || '')),
+        scriptV.some((v) => v.page === 'libmiss.html' && /lib-missing/.test(`${v.selector || ''} ${v.text || ''}`)),
         'a missing declared library is flagged'
       );
       n++;

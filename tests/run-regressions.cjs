@@ -31,6 +31,7 @@ const checks = [
   'batch197-module-custom-layouts-regressions',
   'batch198-contact-form-embed-templates-regressions',
   'batch199-section-scripts-regressions',
+  'batch200-spacing-enforcement-regressions',
   'google-reviews-regressions',
   'seo-foundations-regressions',
   'blog-static-regressions',
@@ -300,11 +301,20 @@ async function resetMysqlDatabase(name) {
     // spawn env above — see tests/lib/gatePoolRelease.cjs. SQLite
     // mode is untouched.
     const args = ['--unhandled-rejections=strict', path.join(__dirname, name + '.cjs')];
+    // Batch 200 instrument note: batch152's theme saves run
+    // force-previews whose export spacing audits now FAIL CLOSED
+    // instead of silently skipping (the Batch 200 fix) — each save
+    // pays a real browser audit, so the suite legitimately runs
+    // several times longer than the generic cap. The override
+    // changes no assertion and no expected value; the suite passes
+    // in full when allowed to finish (direct runs: 199 tree 278s,
+    // 200 tree ~1220s in a throttled sandbox).
+    const timeoutMs = name === 'batch152-global-css-script-regressions' ? 1500000 : MYSQL_MODE ? 300000 : 180000;
     const result = spawnSync(process.execPath, args, {
       cwd: path.resolve(__dirname, '..'),
       env,
       stdio: 'inherit',
-      timeout: MYSQL_MODE ? 300000 : 180000,
+      timeout: timeoutMs,
     });
     if (result.error || result.status !== 0) {
       console.error('FAILED:', name, result.error?.message || result.status);

@@ -7195,7 +7195,17 @@ async function checkMobileOverflow(pages, theme, opts = {}) {
     // the same sandbox-disabled Chromium — intercept subresources
     // and abort any that fail the public-URL guard.
     await require('../server/browserGuard').guardBrowserPage(page);
-    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Batch 200: tolerate a setContent timeout, then let module/form
+    // mounts finish rendering before measuring — the pre-embed DOM
+    // hid embed-driven overflow from this check.
+    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+    if (/data-bitpype-module|data-bitpype-form-embed/.test(html)) {
+      try {
+        await require('../server/spacingQa').waitForEmbedSettle(page, { capMs: 4000 });
+      } catch {
+        /* settle is best-effort; the measurement below still runs */
+      }
+    }
     const result = await page.evaluate(() => {
       const docEl = document.documentElement;
       const body = document.body;
@@ -8414,19 +8424,58 @@ async function qaSite(db, websiteId) {
   // floors (public/css/tokens.css). Best-effort like the overflow
   // check: a missing browser skips, a measured violation FAILS with
   // the exact px + selector so the design agent can fix and re-run.
+  //
+  // Batch 200: the EXPORT audit stamp (settings spacing_audit.<id>,
+  // written by every export/preview) is wired into this check — it
+  // used to float free, consulted by nothing, so a site whose export
+  // measured violations (or whose audit never ran) still passed QA.
+  // Now: a stamp with violations FAILS this check with the audit's
+  // own detail; a legacy skipped stamp (pass null) FAILS it too —
+  // since Batch 200 an export cannot complete without a completed
+  // audit, so a skipped stamp means the site predates enforcement
+  // and must be re-exported. No stamp at all (never exported) keeps
+  // the Batch 135 behaviour on the design render alone.
   if (renderOk) {
+    let stamp = null;
+    try {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`spacing_audit.${websiteId}`);
+      if (row && row.value) stamp = JSON.parse(row.value);
+    } catch {
+      /* the stamp is optional history; absence is handled below */
+    }
+    let stampFail = '';
+    if (stamp) {
+      if (stamp.pass == null || stamp.skipped) {
+        stampFail = `the export spacing audit did not run on the last export (${String(stamp.skipped || 'skipped').slice(0, 120)}) — re-export the site`;
+      } else if (Number(stamp.totalViolations) > 0) {
+        stampFail = `export audit: ${stamp.detail || `${stamp.totalViolations} spacing violation(s) in the exported files`}`;
+      } else if (Number(stamp.filesTotal) > 0 && !Number(stamp.filesAudited)) {
+        stampFail = 'the export spacing audit measured 0 files — re-export the site';
+      }
+    }
     try {
       const spacingQa = require('../server/spacingQa');
       const sp = await spacingQa.assessSpacing(pages, theme, { renderPage });
+      const pass = sp.pass && !stampFail;
       check(
         'spacing',
-        sp.pass,
-        sp.pass
-          ? `Spacing floors hold at 390/980/1440 across ${pages.length} page(s).`
-          : `Spacing violations: ${sp.detail}`
+        pass,
+        pass
+          ? `Spacing floors hold at 390/980/1440 across ${pages.length} page(s)${stamp ? `; export audit clean (${stamp.filesAudited} file(s) measured)` : ''}.`
+          : `Spacing violations: ${[!sp.pass ? sp.detail : '', stampFail].filter(Boolean).join('; ')}`
       );
     } catch (e) {
-      check('spacing', true, `Spacing check skipped (${e.message || e}).`);
+      if (stampFail) {
+        check('spacing', false, `Spacing violations: ${stampFail}`);
+      } else if (stamp) {
+        check(
+          'spacing',
+          true,
+          `Spacing: design-render measurement skipped (${e.message || e}); export audit clean (${stamp.filesAudited} file(s) measured).`
+        );
+      } else {
+        check('spacing', true, `Spacing check skipped (${e.message || e}).`);
+      }
     }
   } else {
     check('spacing', false, 'Skipped (render failed).');
