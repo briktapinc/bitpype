@@ -35,6 +35,7 @@ const googleFonts = require('../public/js/fonts.js');
 const siteIcons = require('./siteIcons');
 const sectionVariants = require('./sectionVariants');
 const sectionTemplates = require('./sectionTemplates');
+const sectionScripts = require('./sectionScripts');
 const seoSchema = require('./seoSchema');
 const siteLegal = require('./siteLegal');
 const { assertPublicUrl } = require('../server/urlSafety');
@@ -647,7 +648,10 @@ ${icons}
   .nav-sub{position:static;display:none;box-shadow:none;border:0;margin:0;padding:0}
   section.block{padding:40px 0}
 }`;
-  return (theme.customCss ? `${base}\n${theme.customCss}` : base) + `\n${fontRules}\n${spacingGuardCss()}\n${sectionVariants.variantCss()}`;
+  return (
+    (theme.customCss ? `${base}\n${theme.customCss}` : base) +
+    `\n${fontRules}\n${spacingGuardCss()}\n${sectionVariants.variantCss()}`
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -838,8 +842,8 @@ function spacingGuardScript() {
     // !important, the only layer that can raise the root. Chrome
     // roots use it too (Batch 187): boxless chrome text used to
     // inherit the wrapper padding the zero rule removed.
-    'function topUpRoot(el,e){var cs=getComputedStyle(el);var br=el.getBoundingClientRect();var pl=br.left+(parseFloat(cs.borderLeftWidth)||0),pr=br.right-(parseFloat(cs.borderRightWidth)||0);var fH=window.innerWidth>700?SI:SIM;var dL=fH-(e.l-pl),dR=fH-(pr-e.r);if(dL>0)el.style.setProperty(\"padding-left\",((parseFloat(cs.paddingLeft)||0)+Math.ceil(dL))+\"px\",\"important\");if(dR>0)el.style.setProperty(\"padding-right\",((parseFloat(cs.paddingRight)||0)+Math.ceil(dR))+\"px\",\"important\");}' +
-    'function chromeFloorPass(root,rootFallback){var boxes=new Map();var fb=null;var walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);var node;while((node=walker.nextNode())){if(!node.nodeValue||!/\\S/.test(node.nodeValue))continue;var p=node.parentElement;if(!p)continue;if(p.closest(\'details:not([open])\'))continue;if(p.closest(\'[data-bp-spacing="off"]\'))continue;if(p.closest(\'.bitpype-module-embed,[data-bitpype-module]\'))continue;if(rootFallback===\'band\'&&p.closest(\'table\'))continue;var pcs=getComputedStyle(p);if(pcs.display==="none"||pcs.visibility==="hidden")continue;var box=nearestBox(p,root);if(rootFallback===\'band\'&&box)continue;if(!box&&!rootFallback)continue;var range=document.createRange();range.selectNodeContents(node);var rects=range.getClientRects();for(var i=0;i<rects.length;i++){var r=rects[i];if(!r.width||!r.height)continue;var e;if(box){e=boxes.get(box);if(!e){e={l:1e9,r:-1e9,t:1e9,b:-1e9};boxes.set(box,e);}}else{if(!fb)fb={l:1e9,r:-1e9,t:1e9,b:-1e9};e=fb;}if(r.left<e.l)e.l=r.left;if(Math.min(r.right,window.innerWidth)>e.r)e.r=Math.min(r.right,window.innerWidth);if(r.top<e.t)e.t=r.top;if(r.bottom>e.b)e.b=r.bottom;}}boxes.forEach(function(e,box){topUpBox(box,e,box===root||box.parentElement===root);});if(fb)topUpRoot(root,fb);}' +
+    'function topUpRoot(el,e){var cs=getComputedStyle(el);var br=el.getBoundingClientRect();var pl=br.left+(parseFloat(cs.borderLeftWidth)||0),pr=br.right-(parseFloat(cs.borderRightWidth)||0);var fH=window.innerWidth>700?SI:SIM;var dL=fH-(e.l-pl),dR=fH-(pr-e.r);if(dL>0)el.style.setProperty("padding-left",((parseFloat(cs.paddingLeft)||0)+Math.ceil(dL))+"px","important");if(dR>0)el.style.setProperty("padding-right",((parseFloat(cs.paddingRight)||0)+Math.ceil(dR))+"px","important");}' +
+    "function chromeFloorPass(root,rootFallback){var boxes=new Map();var fb=null;var walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);var node;while((node=walker.nextNode())){if(!node.nodeValue||!/\\S/.test(node.nodeValue))continue;var p=node.parentElement;if(!p)continue;if(p.closest('details:not([open])'))continue;if(p.closest('[data-bp-spacing=\"off\"]'))continue;if(p.closest('.bitpype-module-embed,[data-bitpype-module]'))continue;if(rootFallback==='band'&&p.closest('table'))continue;var pcs=getComputedStyle(p);if(pcs.display===\"none\"||pcs.visibility===\"hidden\")continue;var box=nearestBox(p,root);if(rootFallback==='band'&&box)continue;if(!box&&!rootFallback)continue;var range=document.createRange();range.selectNodeContents(node);var rects=range.getClientRects();for(var i=0;i<rects.length;i++){var r=rects[i];if(!r.width||!r.height)continue;var e;if(box){e=boxes.get(box);if(!e){e={l:1e9,r:-1e9,t:1e9,b:-1e9};boxes.set(box,e);}}else{if(!fb)fb={l:1e9,r:-1e9,t:1e9,b:-1e9};e=fb;}if(r.left<e.l)e.l=r.left;if(Math.min(r.right,window.innerWidth)>e.r)e.r=Math.min(r.right,window.innerWidth);if(r.top<e.t)e.t=r.top;if(r.bottom>e.b)e.b=r.bottom;}}boxes.forEach(function(e,box){topUpBox(box,e,box===root||box.parentElement===root);});if(fb)topUpRoot(root,fb);}" +
     'function stackLinks(root){var parents=new Set();root.querySelectorAll("a").forEach(function(a){if(a.parentElement)parents.add(a.parentElement);});parents.forEach(function(parent){var pcs=getComputedStyle(parent);if(pcs.display==="flex"||pcs.display==="grid"||pcs.display==="inline-flex"||pcs.display==="inline-grid")return;var kids=parent.childNodes,run=[];function flush(){if(run.length>=2){var vis=run.filter(function(a){var r=a.getBoundingClientRect();return r.width>0&&r.height>0&&/\\S/.test(a.textContent);});if(vis.length>=2&&vis.every(function(a){return getComputedStyle(a).display==="inline";})){vis.forEach(function(a){a.style.display="block";});for(var i=1;i<vis.length;i++){var prev=vis[i-1].getBoundingClientRect(),cur=vis[i].getBoundingClientRect();var gp=cur.top-prev.bottom;if(gp<LF){var mt=parseFloat(getComputedStyle(vis[i]).marginTop)||0;vis[i].style.marginTop=(mt+(LF-gp))+"px";}}}}run=[];}for(var i=0;i<kids.length;i++){var k=kids[i];if(k.nodeType===1&&k.tagName==="A")run.push(k);else if(k.nodeType===1&&k.tagName==="BR")continue;else if(k.nodeType===3&&!/\\S/.test(k.nodeValue))continue;else flush();}flush();});}' +
     'function chromePass(){chromeRoots().forEach(function(root){if(root.kind==="footer"||window.innerWidth<=700)stackLinks(root.el);chromeFloorPass(root.el,true);chromeFloorPass(root.el,true);});}' +
     // Batch 187: html content blocks. The wrapper carries no
@@ -855,8 +859,8 @@ function spacingGuardScript() {
     // embeds are the module system surface (full-width is
     // stamped at mount) and tables belong to the table-wrap
     // pass; both are skipped inside chromeFloorPass.
-    'function bandRoots(){var roots=[];document.querySelectorAll(\".ws-html-block\").forEach(function(el){if(el.getAttribute(\"data-bp-spacing\")===\"off\")return;roots.push(el);});return roots;}' +
-    'function bandPass(){bandRoots().forEach(function(root){chromeFloorPass(root,\'band\');chromeFloorPass(root,\'band\');});}' +
+    'function bandRoots(){var roots=[];document.querySelectorAll(".ws-html-block").forEach(function(el){if(el.getAttribute("data-bp-spacing")==="off")return;roots.push(el);});return roots;}' +
+    "function bandPass(){bandRoots().forEach(function(root){chromeFloorPass(root,'band');chromeFloorPass(root,'band');});}" +
     'function run(){' +
     'document.querySelectorAll(".container,.nav-inner,.footer-grid").forEach(function(el){up(el,["paddingLeft","paddingRight"],C);});' +
     'document.querySelectorAll(".card,.review-card,.col-cell").forEach(function(el){up(el,["paddingTop","paddingRight","paddingBottom","paddingLeft"],P);});' +
@@ -1720,7 +1724,8 @@ function textImageParts(c, edit) {
   const photo = photoFigure(c.image, 'photo');
   const button = c.button && typeof c.button === 'object' ? c.button : null;
   const imgCol =
-    photo || '<div class="ph" style="background:linear-gradient(135deg,#e5e7eb,#d1d5db)" role="img" aria-label="Image"></div>';
+    photo ||
+    '<div class="ph" style="background:linear-gradient(135deg,#e5e7eb,#d1d5db)" role="img" aria-label="Image"></div>';
   const buttonHtml =
     button && button.text
       ? `<p><a class="btn btn-primary" href="${esc(safeHref(button.href))}">${editSpan(edit, 'button.text', button.text)}</a></p>`
@@ -1896,7 +1901,10 @@ function vGalleryRail(c = {}, t, edit) {
   const slots = gallerySlots(c);
   return `<section class="block"><div class="container">
     ${galleryHead(c, edit)}
-    <div class="bpv-gal-rail"><div class="bpv-rail-main">${galleryCell(slots[0], 0, edit)}</div><div class="bpv-rail-side">${slots.slice(1).map((im, j) => galleryCell(im, j + 1, edit)).join('')}</div></div></div></section>`;
+    <div class="bpv-gal-rail"><div class="bpv-rail-main">${galleryCell(slots[0], 0, edit)}</div><div class="bpv-rail-side">${slots
+      .slice(1)
+      .map((im, j) => galleryCell(im, j + 1, edit))
+      .join('')}</div></div></div></section>`;
 }
 
 function vFaqCards(c = {}, t, edit) {
@@ -1980,7 +1988,12 @@ function vCtaRecap(c = {}, t, edit) {
 const VARIANT_RENDERERS = {
   hero: { split: vHeroSplit, editorial: vHeroEditorial, showcase: vHeroShowcase, corner: vHeroCorner },
   text_image: { stacked: vTextImageStacked, overlap: vTextImageOverlap, sticky: vTextImageSticky },
-  reviews: { featured: vReviewsFeatured, masonry: vReviewsMasonry, summary: vReviewsSummary, spotlight: vReviewsSpotlight },
+  reviews: {
+    featured: vReviewsFeatured,
+    masonry: vReviewsMasonry,
+    summary: vReviewsSummary,
+    spotlight: vReviewsSpotlight,
+  },
   gallery: { bento: vGalleryBento, masonry: vGalleryMasonry, strip: vGalleryStrip, rail: vGalleryRail },
   faq: { cards: vFaqCards, split: vFaqSplit, editorial: vFaqEditorial },
   cta: { row: vCtaRow, plain: vCtaPlain, recap: vCtaRecap },
@@ -3675,6 +3688,24 @@ function decorateSectionRoot(html, section, content, edit, opts) {
   // actually rendered through its custom template — the export QA
   // browser audit keys its required-hook assertions off this marker.
   const templateAttr = opts && opts.template ? 'custom' : '';
+  // Batch 199: data-bp-sec — the address the section's script wrapper
+  // resolves its root by. Stamped ONLY when the section carries a
+  // script AND this is a visitor render (edit carries page/section
+  // indexes and is neither the inline-edit canvas nor the layout
+  // editor): design scripts never execute on the platform origin, so
+  // their roots are never stamped there. data-bp-js-expect carries
+  // the QA selector the export script pass asserts after the run.
+  const secKey =
+    section &&
+    sectionScripts.hasSectionJs(section) &&
+    edit &&
+    Number.isInteger(edit.page) &&
+    Number.isInteger(edit.section) &&
+    !edit.editing &&
+    !edit.layout
+      ? sectionScripts.secKeyFor(edit.page, edit.section)
+      : '';
+  const jsExpect = secKey ? sectionScripts.jsExpectOf(section) : '';
   // Batch 148: layout-knob classes, stamped ONLY when a knob is set —
   // a knob-free section's root is byte-identical to before.
   const knobClasses = [];
@@ -3684,9 +3715,7 @@ function decorateSectionRoot(html, section, content, edit, opts) {
   // variant is set — a variant-free section's root is byte-identical.
   const variantId = section ? sectionVariants.variantOf(section) : sectionVariants.STANDARD;
   const variantAttr =
-    variantId !== sectionVariants.STANDARD && sectionVariants.isValidVariant(type, variantId)
-      ? variantId
-      : '';
+    variantId !== sectionVariants.STANDARD && sectionVariants.isValidVariant(type, variantId) ? variantId : '';
   const extra = [sectionExtraClass(section, content), ...knobClasses].filter(Boolean).join(' ');
   const style = sectionInlineStyle(section, content);
   const sid = typeof section.id === 'string' ? section.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) : '';
@@ -3700,6 +3729,12 @@ function decorateSectionRoot(html, section, content, edit, opts) {
     }
     if (templateAttr && !/\bdata-template\s*=/.test(r)) {
       r += ` data-template="${templateAttr}"`;
+    }
+    if (secKey && !/\bdata-bp-sec\s*=/.test(r)) {
+      r += ` data-bp-sec="${secKey}"`;
+    }
+    if (jsExpect && !/\bdata-bp-js-expect\s*=/.test(r)) {
+      r += ` data-bp-js-expect="${esc(jsExpect)}"`;
     }
     if (edit && Number.isInteger(edit.page) && Number.isInteger(edit.section)) {
       if (!/\bdata-ws-page\s*=/.test(r)) r += ` data-ws-page="${Number(edit.page)}"`;
@@ -3929,11 +3964,7 @@ const TEMPLATE_CONTEXT_BUILDERS = {
     };
   },
   booking_button(c) {
-    const href = c.href
-      ? safeHref(c.href)
-      : c.phone
-        ? 'tel:' + digitsOnly(c.phone)
-        : '#contact';
+    const href = c.href ? safeHref(c.href) : c.phone ? 'tel:' + digitsOnly(c.phone) : '#contact';
     return {
       scalars: {
         title: esc(c.title || ''),
@@ -4185,7 +4216,9 @@ function pageForHref(href, pages) {
     if (p === home || isHomePage(p, pages)) continue;
     const canon = canonicalSlugPath(p.slug);
     if (canon && target === canon) return p;
-    const legacy = legacyPageFileName(p.slug).replace(/\.html?$/i, '').toLowerCase();
+    const legacy = legacyPageFileName(p.slug)
+      .replace(/\.html?$/i, '')
+      .toLowerCase();
     if (legacy && target === legacy) return p;
     const flat = canon.replace(/\//g, '-');
     if (flat && target === flat) return p;
@@ -4792,7 +4825,13 @@ function seoContextFromOpts(opts) {
   const seo = o.seo && typeof o.seo === 'object' ? o.seo : null;
   if (seo) return seo;
   // Direct opts (tests / simple callers): { seoBaseUrl, seoBusiness, … }
-  if (o.seoBaseUrl != null || o.seoBusiness != null || o.gscToken != null || o.moduleFaqItems != null || o.blog != null) {
+  if (
+    o.seoBaseUrl != null ||
+    o.seoBusiness != null ||
+    o.gscToken != null ||
+    o.moduleFaqItems != null ||
+    o.blog != null
+  ) {
     return {
       baseUrl: o.seoBaseUrl || '',
       business: o.seoBusiness || null,
@@ -4805,7 +4844,9 @@ function seoContextFromOpts(opts) {
 }
 
 function absoluteSeoUrl(baseUrl, urlPath) {
-  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const base = String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!base) return '';
   const p = urlPath == null ? '/' : String(urlPath);
   return base + (p.startsWith('/') ? p : `/${p}`);
@@ -4815,7 +4856,9 @@ function absolutizeSeoUrl(baseUrl, value) {
   const v = String(value || '').trim();
   if (!v) return '';
   if (/^https?:\/\//i.test(v) || v.startsWith('data:')) return v;
-  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const base = String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!base) return v;
   return base + (v.startsWith('/') ? v : `/${v}`);
 }
@@ -4829,11 +4872,7 @@ function firstPageImage(page) {
       c.backgroundImage,
       c.image && typeof c.image === 'object' ? c.image.url : c.image,
       c.url,
-      Array.isArray(c.images) && c.images[0]
-        ? typeof c.images[0] === 'object'
-          ? c.images[0].url
-          : c.images[0]
-        : '',
+      Array.isArray(c.images) && c.images[0] ? (typeof c.images[0] === 'object' ? c.images[0].url : c.images[0]) : '',
     ];
     for (const cand of candidates) {
       const v = String(cand || '').trim();
@@ -4904,7 +4943,9 @@ function buildSeoHeadExtras(page, pages, theme, opts) {
   // author/publisher is the site's business from the SEO context.
   const bp = page && typeof page === 'object' ? page.blogPost : null;
   if (bp && !existingTypes.has('BlogPosting')) {
-    const baseUrl = String(seo.baseUrl || '').trim().replace(/\/+$/, '');
+    const baseUrl = String(seo.baseUrl || '')
+      .trim()
+      .replace(/\/+$/, '');
     const postPath = bp.urlPath || pageUrlPath(page && page.slug);
     const postUrl = baseUrl ? absoluteSeoUrl(baseUrl, postPath) : postPath;
     const cover = bp.coverImage ? absolutizeSeoUrl(baseUrl, bp.coverImage) : '';
@@ -4921,8 +4962,7 @@ function buildSeoHeadExtras(page, pages, theme, opts) {
       {
         businessName: biz.businessName || biz.name || '',
         businessUrl: baseUrl ? `${baseUrl}/` : biz.url || '',
-        publisherLogo:
-          t.logoMode === 'image' && t.logoUrl ? absolutizeSeoUrl(baseUrl, t.logoUrl) : '',
+        publisherLogo: t.logoMode === 'image' && t.logoUrl ? absolutizeSeoUrl(baseUrl, t.logoUrl) : '',
       }
     );
     if (ld) blocks.push(seoSchema.ldJsonScript(ld, 'blogposting'));
@@ -5071,9 +5111,7 @@ function injectStaticBlogSnapshot(html, blog, baseUrl) {
     if (!cfg && type !== 'blog') return tag;
     const cards = buildStaticBlogCardsHtml(blog, cfg || {}, baseUrl);
     if (!cards) return tag;
-    const open = tag.endsWith('/>')
-      ? tag
-      : tag.replace(/>$/, ' data-bitpype-static-blog="1">');
+    const open = tag.endsWith('/>') ? tag : tag.replace(/>$/, ' data-bitpype-static-blog="1">');
     return open + cards;
   });
 }
@@ -5100,9 +5138,7 @@ function blogArticleHtml(blog, post, baseUrl) {
     `<style data-bitpype-blog-post-css="1">${BLOG_POST_CSS}</style>` +
     `<p class="bp-post-back"><a href="${esc(back)}">← All posts</a></p>` +
     `<h1>${esc(post.title)}</h1>` +
-    (label
-      ? `<p class="bp-post-meta"><time datetime="${esc(iso || label)}">${esc(label)}</time></p>`
-      : '') +
+    (label ? `<p class="bp-post-meta"><time datetime="${esc(iso || label)}">${esc(label)}</time></p>` : '') +
     (cover ? `<img class="bp-post-cover" src="${esc(cover)}" alt="${esc(post.title)}">` : '') +
     `<div class="bp-post-body">${post.bodyHtml || ''}</div>` +
     `</article>`
@@ -5163,15 +5199,17 @@ function resolvePageSeo(page, pages, theme, opts) {
   const seo = seoContextFromOpts(opts);
   const meta = pageMetaFields(page);
   const t = normalizeTheme(theme);
-  const baseUrl = seo ? String(seo.baseUrl || '').trim().replace(/\/+$/, '') : '';
+  const baseUrl = seo
+    ? String(seo.baseUrl || '')
+        .trim()
+        .replace(/\/+$/, '')
+    : '';
   let canonical = meta.canonical;
   if (!canonical && seo) {
     // Absolute when the site domain is known; root-relative canonical
     // path otherwise (upgraded to absolute on the first export after a
     // domain attaches — exports are re-materialized at publish).
-    canonical = baseUrl
-      ? absoluteSeoUrl(baseUrl, pageUrlPath(page && page.slug))
-      : pageUrlPath(page && page.slug);
+    canonical = baseUrl ? absoluteSeoUrl(baseUrl, pageUrlPath(page && page.slug)) : pageUrlPath(page && page.slug);
   }
   let ogImage = meta.ogImage;
   if (!ogImage) ogImage = firstPageImage(page) || (t.logoMode === 'image' ? t.logoUrl : '') || '';
@@ -5203,7 +5241,9 @@ function applySeoHeadToDocument(docHtml, pageSeo) {
     inserts.push('<meta name="robots" content="noindex">');
   }
   if (pageSeo.gscToken && !/google-site-verification/i.test(doc)) {
-    inserts.push(`<meta name="google-site-verification" content="${esc(String(pageSeo.gscToken).trim().slice(0, 200))}">`);
+    inserts.push(
+      `<meta name="google-site-verification" content="${esc(String(pageSeo.gscToken).trim().slice(0, 200))}">`
+    );
   }
   if (pageSeo.ogImage && !/<meta\b[^>]*property\s*=\s*["']og:image["']/i.test(doc)) {
     inserts.push(`<meta property="og:image" content="${esc(pageSeo.ogImage)}">`);
@@ -5219,21 +5259,27 @@ function applySeoHeadToDocument(docHtml, pageSeo) {
 /** sitemap.xml body: indexable pages only, honest per-page lastmod. */
 function buildSitemapXml(pages, opts) {
   const o = opts && typeof opts === 'object' ? opts : {};
-  const baseUrl = String(o.baseUrl || '').trim().replace(/\/+$/, '');
+  const baseUrl = String(o.baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
   const siteUpdated = o.siteUpdatedAt ? String(o.siteUpdatedAt) : '';
   const escXml = (s) =>
-    String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   const urls = [];
   for (const p of Array.isArray(pages) ? pages : []) {
     if (!p) continue;
     if (pageMetaFields(p).noindex) continue;
-    const loc = baseUrl
-      ? absoluteSeoUrl(baseUrl, pageUrlPath(p.slug))
-      : pageUrlPath(p.slug);
+    const loc = baseUrl ? absoluteSeoUrl(baseUrl, pageUrlPath(p.slug)) : pageUrlPath(p.slug);
     const rawMod = p.updatedAt || p.updated_at || siteUpdated || '';
     const d = rawMod ? new Date(String(rawMod).replace(' ', 'T')) : null;
     const lastmod = d && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : '';
-    urls.push(`  <url>\n    <loc>${escXml(loc)}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}\n  </url>`);
+    urls.push(
+      `  <url>\n    <loc>${escXml(loc)}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ''}\n  </url>`
+    );
   }
   // Batch 32 (C6): extra URL entries (static blog post pages) with
   // their own honest lastmod (the post's updated/published stamp).
@@ -5252,7 +5298,9 @@ function buildSitemapXml(pages, opts) {
 /** robots.txt body: allow-all + Sitemap line when an absolute base is known. */
 function buildRobotsTxt(opts) {
   const o = opts && typeof opts === 'object' ? opts : {};
-  const baseUrl = String(o.baseUrl || '').trim().replace(/\/+$/, '');
+  const baseUrl = String(o.baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
   let txt = 'User-agent: *\nAllow: /\n';
   if (baseUrl) txt += `\nSitemap: ${baseUrl}/sitemap.xml\n`;
   return txt;
@@ -5297,8 +5345,7 @@ function buildRedirects(pages) {
 function build404Page(pages, theme, opts) {
   const home = homePage(pages) || (Array.isArray(pages) ? pages[0] : null);
   const t = normalizeTheme(theme);
-  const bizName =
-    (opts && opts.businessName) || t.brandName || (home && home.title) || 'This business';
+  const bizName = (opts && opts.businessName) || t.brandName || (home && home.title) || 'This business';
   const main = `<main class="bp-404" style="max-width:760px;margin:0 auto;padding:64px 28px;text-align:center">
 <h1>Page not found</h1>
 <p>The page you are looking for is not here. It may have moved, or the link may be out of date.</p>
@@ -5367,8 +5414,7 @@ function build404Page(pages, theme, opts) {
 function buildDetailPage(pages, theme, opts) {
   const home = homePage(pages) || (Array.isArray(pages) ? pages[0] : null);
   const t = normalizeTheme(theme);
-  const bizName =
-    (opts && opts.businessName) || t.brandName || (home && home.title) || 'This business';
+  const bizName = (opts && opts.businessName) || t.brandName || (home && home.title) || 'This business';
   const seo = seoContextFromOpts(opts || {});
   const detail = (seo && seo.detail) || (opts && opts.detail) || null;
   let appBase = '';
@@ -5440,7 +5486,7 @@ function buildWebinarPage(pages, theme, opts) {
   const bizName = o.businessName || t.brandName || (home && home.title) || 'This business';
   let appBase = '';
   try {
-    appBase = String((o.api || require('../server/stripeClient').appUrl() || '')).replace(/\/$/, '');
+    appBase = String(o.api || require('../server/stripeClient').appUrl() || '').replace(/\/$/, '');
   } catch {
     appBase = '';
   }
@@ -5596,6 +5642,29 @@ function injectThemeStyles(docHtml, theme) {
     return doc.replace(/<html\b[^>]*>/i, (m) => `${m}\n<head>${styleTag}</head>`);
   }
   return `<!DOCTYPE html><html lang="en"><head>${styleTag}</head><body>${doc}</body></html>`;
+}
+
+/**
+ * Batch 199 — inject a page's section scripts (Part D1): the library
+ * tags (merged importmap + SRI classic tags) before </head>, and the
+ * wrapped per-section scripts before </body> (body end, after the
+ * theme/page JS docShell emitted, in section order). A page without
+ * section scripts returns the document untouched — byte-identical
+ * to before. Callers gate this to visitor renders: the portal edit
+ * canvas and layout editor never receive design scripts.
+ */
+function injectSectionScripts(docHtml, page, pageIndex) {
+  let doc = String(docHtml || '');
+  if (!doc.trim()) return doc;
+  const pack = sectionScripts.collectPageScripts(page, pageIndex);
+  if (!pack.count) return doc;
+  if (pack.head) {
+    if (/<\/head>/i.test(doc)) doc = doc.replace(/<\/head>/i, `${pack.head}\n</head>`);
+    else if (/<head\b[^>]*>/i.test(doc)) doc = doc.replace(/<head\b[^>]*>/i, (m) => `${m}\n${pack.head}`);
+  }
+  if (/<\/body>/i.test(doc)) doc = doc.replace(/<\/body>/i, `${pack.body}\n</body>`);
+  else doc = `${doc}\n${pack.body}`;
+  return doc;
 }
 
 /** Inject/replace theme.customJs before </body> for freestyle motion/effects. */
@@ -5796,7 +5865,15 @@ function renderPage(page, allPages, theme, opts) {
   const useSharedHeader = !!(t.partials && t.partials.headerHtml && !pageMeta.overrideChrome);
   let body = sections
     .map((s, si) => {
-      const edit = o.layoutEditor ? makeLayoutEdit(pageIndex, si) : makeEdit(t, pageIndex, si, editable);
+      let edit = o.layoutEditor ? makeLayoutEdit(pageIndex, si) : makeEdit(t, pageIndex, si, editable);
+      // Batch 199: a script-carrying section needs its root address
+      // (data-bp-sec) stamped even when makeEdit returns null (no
+      // element fonts, not editing) — hand decorateSectionRoot a
+      // minimal visitor-render edit carrying just the indexes. The
+      // layout editor and the edit canvas never get one.
+      if (!edit && !o.layoutEditor && !editable && sectionScripts.hasSectionJs(s)) {
+        edit = { page: pageIndex, section: si, editing: false, fonts: null };
+      }
       // Skip per-page nav when shared header partial is active.
       if (s.type === 'nav' && useSharedHeader) return '';
       if (s.type === 'footer' && t.partials && t.partials.footerHtml && !pageMeta.overrideChrome) return '';
@@ -5809,28 +5886,30 @@ function renderPage(page, allPages, theme, opts) {
   body = applySitePartials(body, t, pageForRender);
   // Footer/CTA hashes (#services) must become *.html on static multipage hosts.
   if (!preview) body = rewriteAnchorLinksToFiles(body, pages);
-  return finishPage(
-    upsertFontLinks(
-      docShell({
-        title: pageForRender.title || 'Home',
-        body,
-        theme: t,
-        script: scripts,
-        description: pageMeta.description,
-        ogImage: pageSeo.ogImage,
-        canonical: pageSeo.canonical,
-        noindex: pageSeo.noindex,
-        gscToken: pageSeo.gscToken,
-        seoHead: pageSeo.seoHead,
-        pageJs: pageMeta.customJs,
-        pageHead: pageMeta.customHead,
-        ogType: pageMeta.ogType,
-        // Batch 148: per-page layout-knob rules ('' when no knob is set).
-        sectionLayoutCss: sectionLayoutCss([pageForRender]) || undefined,
-      }),
-      t
-    )
+  let doc = upsertFontLinks(
+    docShell({
+      title: pageForRender.title || 'Home',
+      body,
+      theme: t,
+      script: scripts,
+      description: pageMeta.description,
+      ogImage: pageSeo.ogImage,
+      canonical: pageSeo.canonical,
+      noindex: pageSeo.noindex,
+      gscToken: pageSeo.gscToken,
+      seoHead: pageSeo.seoHead,
+      pageJs: pageMeta.customJs,
+      pageHead: pageMeta.customHead,
+      ogType: pageMeta.ogType,
+      // Batch 148: per-page layout-knob rules ('' when no knob is set).
+      sectionLayoutCss: sectionLayoutCss([pageForRender]) || undefined,
+    }),
+    t
   );
+  // Batch 199: section scripts ride visitor renders only — never the
+  // portal edit canvas or the layout editor (platform origin).
+  if (!editable && !o.layoutEditor) doc = injectSectionScripts(doc, pageForRender, pageIndex);
+  return finishPage(doc);
 }
 
 /**
@@ -6676,12 +6755,26 @@ function deleteWebsite(db, websiteId, opts = {}) {
   const site = db.prepare('SELECT * FROM websites WHERE id = ?').get(id);
   if (!site) throw err('SITE_NOT_FOUND', `Website #${id} not found.`);
   if (site.archived_at) {
-    return { id, archived: true, alreadyArchived: true, name: site.name, lead_id: site.lead_id, archived_at: site.archived_at };
+    return {
+      id,
+      archived: true,
+      alreadyArchived: true,
+      name: site.name,
+      lead_id: site.lead_id,
+      archived_at: site.archived_at,
+    };
   }
   db.prepare("UPDATE websites SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
   const row = db.prepare('SELECT archived_at FROM websites WHERE id = ?').get(id);
   logActivity(db, 'websites', `Website #${id} ("${String(site.name || '').slice(0, 80)}") archived (soft delete).`);
-  return { id, archived: true, alreadyArchived: false, name: site.name, lead_id: site.lead_id, archived_at: row.archived_at };
+  return {
+    id,
+    archived: true,
+    alreadyArchived: false,
+    name: site.name,
+    lead_id: site.lead_id,
+    archived_at: row.archived_at,
+  };
 }
 
 /**
@@ -6964,9 +7057,7 @@ function runRetentionPrunes(db) {
   let activityPruned = 0;
   let versionsPruned = 0;
   try {
-    const info = db
-      .prepare("DELETE FROM activity_log WHERE at < datetime('now', '-180 days')")
-      .run();
+    const info = db.prepare("DELETE FROM activity_log WHERE at < datetime('now', '-180 days')").run();
     activityPruned = Number(info.changes || 0);
   } catch {
     /* activity_log absent on a bare DB */
@@ -7860,6 +7951,37 @@ async function qaSite(db, websiteId) {
     );
   }
 
+  // 7d. Batch 199 — stored section scripts must validate (Part D1):
+  // availability, caps, syntax, denylist, registry coherence. Save
+  // paths enforce this; QA reports hand-edited or legacy data that
+  // slipped through, naming the rule. (The runtime half of the
+  // contract is asserted by the export script pass in spacingQa.)
+  {
+    const badScripts = [];
+    for (const p of pages) {
+      for (const s of p.sections || []) {
+        if (!s || (s.js == null && s.libs == null && s.jsModule == null && s.jsExpect == null)) continue;
+        const where = `${p.slug || '/'}: ${s.type}`;
+        for (const prob of sectionScripts.validateSectionScript(s)) {
+          badScripts.push(`${where} script: ${prob.message}`);
+        }
+      }
+      const total = sectionScripts.pageJsChars(p.sections || []);
+      if (total > sectionScripts.MAX_PAGE_JS_CHARS) {
+        badScripts.push(
+          `${p.slug || '/'}: section scripts total ${total} characters — the per-page limit is ${sectionScripts.MAX_PAGE_JS_CHARS}`
+        );
+      }
+    }
+    check(
+      'section-scripts-valid',
+      badScripts.length === 0,
+      badScripts.length
+        ? `Invalid section script(s): ${badScripts.slice(0, 6).join('; ')}`
+        : 'All section scripts satisfy the Part D validation rules.'
+    );
+  }
+
   // 8. Custom sites: no mandatory template hero. Pass when freeform, or modular with
   // any purposeful content (columns/html/heading/image/hero/cta/contact/module…).
   let reqOk = false;
@@ -8210,9 +8332,7 @@ async function qaSite(db, websiteId) {
                 'blog: published posts exist but no static blog was threaded into the export (missing blog page/mount, or the blog page is member-gated)'
               );
             } else {
-              const anchorObj = pages.find(
-                (p) => p && canonicalSlugPath(p.slug) === String(blogCtxQa.pagePath || '')
-              );
+              const anchorObj = pages.find((p) => p && canonicalSlugPath(p.slug) === String(blogCtxQa.pagePath || ''));
               const anchorFile = anchorObj
                 ? anchorObj === homePageObj || isHomePage(anchorObj, pages)
                   ? 'index.html'
@@ -8674,11 +8794,17 @@ function writeStaticPages(pages, theme, outDir, opts) {
     const seoForLegal = seoContextFromOpts(opts || {});
     const legalCtx = siteLegal.legalContextFromSeo(seoForLegal, pages);
     pages = siteLegal.withLegalPages(pages, legalCtx, { canon: canonicalSlugPath });
-  } catch { /* QA foundations fails the export if the pages are missing */ }
+  } catch {
+    /* QA foundations fails the export if the pages are missing */
+  }
   // Batch 32 (C6): static blog context (published posts + mounts),
   // threaded via opts.seo.blog by buildSeoExportContext.
   const seoForBlog = seoContextFromOpts(opts || {});
-  const baseUrlForBlog = seoForBlog ? String(seoForBlog.baseUrl || '').trim().replace(/\/+$/, '') : '';
+  const baseUrlForBlog = seoForBlog
+    ? String(seoForBlog.baseUrl || '')
+        .trim()
+        .replace(/\/+$/, '')
+    : '';
   const blogCtx =
     seoForBlog && seoForBlog.blog && Array.isArray(seoForBlog.blog.posts) && seoForBlog.blog.posts.length
       ? seoForBlog.blog
@@ -8720,8 +8846,7 @@ function writeStaticPages(pages, theme, outDir, opts) {
   const blogSitemapUrls = [];
   if (blogCtx) {
     try {
-      const anchorPage =
-        pages.find((p) => p && canonicalSlugPath(p.slug) === String(blogCtx.pagePath || '')) || null;
+      const anchorPage = pages.find((p) => p && canonicalSlugPath(p.slug) === String(blogCtx.pagePath || '')) || null;
       const takenPaths = new Set(pages.map((p) => canonicalSlugPath(p && p.slug)));
       for (const rawPost of blogCtx.posts) {
         const post = normalizeBlogPost(rawPost);
@@ -8759,7 +8884,11 @@ function writeStaticPages(pages, theme, outDir, opts) {
   // mounts), robots.txt, sitemap.xml with honest per-page lastmod, and
   // a _redirects map from legacy underscore URLs to canonical ones.
   const seo = seoContextFromOpts(opts || {});
-  const baseUrl = seo ? String(seo.baseUrl || '').trim().replace(/\/+$/, '') : '';
+  const baseUrl = seo
+    ? String(seo.baseUrl || '')
+        .trim()
+        .replace(/\/+$/, '')
+    : '';
   try {
     fs.writeFileSync(path.join(outDir, '404.html'), build404Page(pages, theme, opts || {}), 'utf8');
     if (!written.includes('404.html')) written.push('404.html');
@@ -8949,10 +9078,7 @@ function writeStaticPages(pages, theme, outDir, opts) {
         if (!st.isFile()) continue;
         if (/\.html?$/i.test(name)) {
           if (!keep.has(rel)) fs.unlinkSync(abs);
-        } else if (
-          prefix === '' &&
-          (name === '_redirects' || name === 'sitemap.xml' || name === 'robots.txt')
-        ) {
+        } else if (prefix === '' && (name === '_redirects' || name === 'sitemap.xml' || name === 'robots.txt')) {
           if (!keep.has(name)) fs.unlinkSync(abs);
         }
       }
@@ -9035,7 +9161,15 @@ function collapsePagesDevDeploymentHost(url) {
  * over every derived base and applies to this export only.
  */
 function buildSeoExportContext(db, websiteId, opts = {}) {
-  const ctx = { baseUrl: '', business: null, moduleFaqItems: [], gscToken: '', siteUpdatedAt: '', blog: null, detail: null };
+  const ctx = {
+    baseUrl: '',
+    business: null,
+    moduleFaqItems: [],
+    gscToken: '',
+    siteUpdatedAt: '',
+    blog: null,
+    detail: null,
+  };
   try {
     const site = getWebsite(db, websiteId);
     ctx.siteUpdatedAt = site.updated_at || '';
@@ -9048,7 +9182,9 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
     // Absolute base: a linked custom domain wins; else the published
     // preview URL when it is a real hosted URL (not a local path).
     if (site.custom_domain) {
-      ctx.baseUrl = `https://${String(site.custom_domain).replace(/^https?:\/\//i, '').replace(/\/+$/, '')}`;
+      ctx.baseUrl = `https://${String(site.custom_domain)
+        .replace(/^https?:\/\//i, '')
+        .replace(/\/+$/, '')}`;
     }
     if (!ctx.baseUrl) {
       try {
@@ -9060,13 +9196,20 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
         if (dom && dom.public_url && /^https?:\/\//i.test(dom.public_url)) {
           ctx.baseUrl = String(dom.public_url).replace(/\/+$/, '');
         } else if (dom && dom.domain_name) {
-          ctx.baseUrl = `https://${String(dom.domain_name).replace(/^https?:\/\//i, '').replace(/\/+$/, '')}`;
+          ctx.baseUrl = `https://${String(dom.domain_name)
+            .replace(/^https?:\/\//i, '')
+            .replace(/\/+$/, '')}`;
         }
       } catch {
         /* site_domains is optional */
       }
     }
-    if (!ctx.baseUrl && site.preview_url && /^https?:\/\//i.test(site.preview_url) && !/localhost|127\.0\.0\.1/i.test(site.preview_url)) {
+    if (
+      !ctx.baseUrl &&
+      site.preview_url &&
+      /^https?:\/\//i.test(site.preview_url) &&
+      !/localhost|127\.0\.0\.1/i.test(site.preview_url)
+    ) {
       // Batch 44: a per-deployment preview host (<hash>.<project>
       // .pages.dev) trails the live deployment by one — collapse it to
       // the stable project subdomain so the SEO base names a host that
@@ -9114,7 +9257,9 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
       };
       try {
         const rows = db
-          .prepare("SELECT question, answer_html FROM faq_items WHERE lead_id = ? AND status = 'published' ORDER BY sort_order ASC, id ASC")
+          .prepare(
+            "SELECT question, answer_html FROM faq_items WHERE lead_id = ? AND status = 'published' ORDER BY sort_order ASC, id ASC"
+          )
           .all(lead.id);
         ctx.moduleFaqItems = rows || [];
       } catch {
@@ -9135,7 +9280,12 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
           .prepare('SELECT internal_enabled, google_ids FROM site_analytics_settings WHERE website_id = ?')
           .get(websiteId);
         let googleIds = [];
-        try { const parsed = a && a.google_ids ? JSON.parse(a.google_ids) : []; if (Array.isArray(parsed)) googleIds = parsed.map((x) => String(x || '').trim()).filter(Boolean); } catch { /* ignore */ }
+        try {
+          const parsed = a && a.google_ids ? JSON.parse(a.google_ids) : [];
+          if (Array.isArray(parsed)) googleIds = parsed.map((x) => String(x || '').trim()).filter(Boolean);
+        } catch {
+          /* ignore */
+        }
         ctx.legalAnalytics = { internal: !!(a && a.internal_enabled), googleIds };
       } catch {
         ctx.legalAnalytics = { internal: false, googleIds: [] };
@@ -9181,8 +9331,7 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
           }
           if (!anchor) {
             const mounted = sitePages.filter(pageHasBlogMount);
-            anchor =
-              mounted.find((p) => /(^|\/)blog$/.test(canonicalSlugPath(p.slug))) || mounted[0] || null;
+            anchor = mounted.find((p) => /(^|\/)blog$/.test(canonicalSlugPath(p.slug))) || mounted[0] || null;
           }
           if (!anchor) {
             anchor = sitePages.find((p) => p && /(^|\/)blog$/.test(canonicalSlugPath(p.slug))) || null;
@@ -9245,7 +9394,9 @@ function buildSeoExportContext(db, websiteId, opts = {}) {
     try {
       const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`seo.gsc.site.${websiteId}`);
       if (row && row.value) {
-        ctx.gscToken = String(require('./secretBox').decryptSetting(`seo.gsc.site.${websiteId}`, row.value) || '').trim();
+        ctx.gscToken = String(
+          require('./secretBox').decryptSetting(`seo.gsc.site.${websiteId}`, row.value) || ''
+        ).trim();
       }
     } catch {
       /* settings optional */
@@ -9375,11 +9526,7 @@ async function attachPexelsImages(db, websiteId, opts = {}) {
   } catch {
     throw err('EXPORT_ROOT', 'App export storage is not available.');
   }
-  const imgDir = path.join(
-    exportRoot,
-    require('./assetValidation').siteStorageFolderForDb(db, websiteId),
-    'images'
-  );
+  const imgDir = path.join(exportRoot, require('./assetValidation').siteStorageFolderForDb(db, websiteId), 'images');
   const localPhotos = await pexels.localizePhotos(photos, imgDir, { prefix: 'pexels' });
   if (!localPhotos.length) throw err('PEXELS_DOWNLOAD', 'Could not store Pexels photos in app storage.');
   const industry = TEMPLATES[site.industry] ? site.industry : detectIndustry(lead && lead.category);

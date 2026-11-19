@@ -27,7 +27,7 @@ const CATIDS = {
   type: 'array',
   items: { type: 'integer', minimum: 1 },
   description:
-    'Batch 124: ids of shared-taxonomy categories in this module\'s own scope to assign the item to — replaces the item\'s full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.',
+    "Batch 124: ids of shared-taxonomy categories in this module's own scope to assign the item to — replaces the item's full category set; omit to leave assignments untouched. Manage the taxonomy with the categories.* tools.",
 };
 function schema(properties = {}, required = []) {
   return required.length ? { type: 'object', properties, required } : { type: 'object', properties };
@@ -778,14 +778,13 @@ function clientToolDefs() {
     },
     {
       name: 'menu.deleteCategory',
-      description:
-        'Delete a menu category by id. Its items are kept and become uncategorized. Standard/Premium.',
+      description: 'Delete a menu category by id. Its items are kept and become uncategorized. Standard/Premium.',
       inputSchema: schema({ id: ID, leadId: ID }, ['id']),
     },
     {
       name: 'datatables.get',
       description:
-        'Get the lead\'s Data Table: title, column schema, presentation template + display roles, submit settings, and ALL rows (published + pending visitor submissions). One table per site. Standard/Premium.',
+        "Get the lead's Data Table: title, column schema, presentation template + display roles, submit settings, and ALL rows (published + pending visitor submissions). One table per site. Standard/Premium.",
       inputSchema: schema({ leadId: ID }),
     },
     {
@@ -864,13 +863,13 @@ function clientToolDefs() {
     },
     {
       name: 'datatables.clear',
-      description: 'Delete ALL rows from the lead\'s Data Table (columns and settings are kept). Standard/Premium.',
+      description: "Delete ALL rows from the lead's Data Table (columns and settings are kept). Standard/Premium.",
       inputSchema: schema({ leadId: ID }, ['leadId']),
     },
     {
       name: 'charts.get',
       description:
-        'Get the lead\'s Charts: every chart definition (title, type, source, binding/manual data, style) with its computed plottable data, plus the Data Table columns available for binding. Chart types: bar|hbar|line|area|pie|doughnut. Sources: table (bound to the Data Table — label_column + value_columns of number/currency columns, aggregation sum|count|average|none, computed from PUBLISHED rows only) or manual (a stored dataset). Max 20 charts per site. Standard/Premium.',
+        "Get the lead's Charts: every chart definition (title, type, source, binding/manual data, style) with its computed plottable data, plus the Data Table columns available for binding. Chart types: bar|hbar|line|area|pie|doughnut. Sources: table (bound to the Data Table — label_column + value_columns of number/currency columns, aggregation sum|count|average|none, computed from PUBLISHED rows only) or manual (a stored dataset). Max 20 charts per site. Standard/Premium.",
       inputSchema: schema({ leadId: ID }),
     },
     {
@@ -929,7 +928,7 @@ function clientToolDefs() {
     },
     {
       name: 'charts.clear',
-      description: 'Delete ALL charts from the lead\'s site (the Data Table itself is untouched). Standard/Premium.',
+      description: "Delete ALL charts from the lead's site (the Data Table itself is untouched). Standard/Premium.",
       inputSchema: schema({ leadId: ID }, ['leadId']),
     },
     {
@@ -1144,7 +1143,15 @@ function clientToolDefs() {
       name: 'googlereviews.updateConfig',
       description:
         'Update the Google Reviews config: place_id (validated as a Place ID token), max_reviews (1–5), min_rating (0–5). Saving a new Place ID does not fetch by itself — call googlereviews.refresh to pull reviews in (the portal save validates against Google when the platform key exists). Standard/Premium.',
-      inputSchema: schema({ leadId: ID, place_id: STR, placeId: STR, max_reviews: NUM, maxReviews: NUM, min_rating: NUM, minRating: NUM }),
+      inputSchema: schema({
+        leadId: ID,
+        place_id: STR,
+        placeId: STR,
+        max_reviews: NUM,
+        maxReviews: NUM,
+        min_rating: NUM,
+        minRating: NUM,
+      }),
     },
     {
       name: 'googlereviews.preview',
@@ -1161,7 +1168,7 @@ function clientToolDefs() {
     {
       name: 'calls.getSettings',
       description:
-        'Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site\'s call button shows and dials — the lead\'s own phone number is only the forward-to destination and never appears on the site), cta_text, redirect_enabled + redirect_number (where calls to the display number are forwarded), record_calls (with spoken consent), voicemail_enabled (unanswered calls get a spoken greeting with the business name and can leave a message that is transcribed and emailed; default on), rotate_enabled + rotation_numbers (Batch 26d pool rotation), and twilio_number_sid when the number was bought in the admin. Forwarding is admin-only; portal clients can set only their phone number. Standard/Premium.',
+        "Get the Call Tracking settings for a lead: display_number (the Twilio tracking number the site's call button shows and dials — the lead's own phone number is only the forward-to destination and never appears on the site), cta_text, redirect_enabled + redirect_number (where calls to the display number are forwarded), record_calls (with spoken consent), voicemail_enabled (unanswered calls get a spoken greeting with the business name and can leave a message that is transcribed and emailed; default on), rotate_enabled + rotation_numbers (Batch 26d pool rotation), and twilio_number_sid when the number was bought in the admin. Forwarding is admin-only; portal clients can set only their phone number. Standard/Premium.",
       inputSchema: schema({ leadId: ID }),
     },
     {
@@ -1240,13 +1247,32 @@ function clientToolDefs() {
       name: 'members.createTier',
       description:
         'Create a membership tier (name, description, price in dollars or price_cents — 0 = free, interval month|year, active). A paid tier creates its Product+Price on the owner’s own Stripe when their keys are saved; without keys it saves INACTIVE (connect Stripe to activate). Free tiers work with no keys. Standard/Premium.',
-      inputSchema: schema({ leadId: ID, name: STR, description: STR, price: NUM, price_cents: NUM, interval: STR, active: { type: 'boolean' }, sort_order: NUM }),
+      inputSchema: schema({
+        leadId: ID,
+        name: STR,
+        description: STR,
+        price: NUM,
+        price_cents: NUM,
+        interval: STR,
+        active: { type: 'boolean' },
+        sort_order: NUM,
+      }),
     },
     {
       name: 'members.updateTier',
       description:
         'Update a membership tier. Changing the price or interval mints a NEW Stripe Price on the owner’s account (existing subscribers keep their price). Same Stripe rules as members.createTier. Standard/Premium.',
-      inputSchema: schema({ leadId: ID, id: ID, name: STR, description: STR, price: NUM, price_cents: NUM, interval: STR, active: { type: 'boolean' }, sort_order: NUM }),
+      inputSchema: schema({
+        leadId: ID,
+        id: ID,
+        name: STR,
+        description: STR,
+        price: NUM,
+        price_cents: NUM,
+        interval: STR,
+        active: { type: 'boolean' },
+        sort_order: NUM,
+      }),
     },
     {
       name: 'members.listSubscriptions',
@@ -1440,10 +1466,12 @@ function clientToolDefs() {
       name: 'shared.unlink',
       description:
         'Remove a cross-module link (same keys as shared.link). Cleared links render as nothing — the consumer falls back to its standalone content. Standard/Premium.',
-      inputSchema: schema(
-        { leadId: ID, consumer_type: STR, consumer_id: ID, provider_type: STR, role: STR },
-        ['leadId', 'consumer_type', 'consumer_id', 'provider_type']
-      ),
+      inputSchema: schema({ leadId: ID, consumer_type: STR, consumer_id: ID, provider_type: STR, role: STR }, [
+        'leadId',
+        'consumer_type',
+        'consumer_id',
+        'provider_type',
+      ]),
     },
     {
       name: 'categories.list',
@@ -1623,10 +1651,10 @@ function clientToolDefs() {
       name: 'webinar.create',
       description:
         'Create a webinar for this site: title (required), description, scheduledAt (a datetime-local value read as America/New_York wall time, or a full ISO instant), youtube (a YouTube link or video ID — only the ID is stored). The access code (7 unambiguous characters) is generated automatically and the slug is derived from the title. The webinar runs on the site’s own gate/room at /webinar/<slug>; registrants are captured into the site’s workspace contacts. Standard/Premium.',
-      inputSchema: schema(
-        { leadId: ID, title: STR, description: STR, scheduledAt: STR, youtube: STR },
-        ['leadId', 'title']
-      ),
+      inputSchema: schema({ leadId: ID, title: STR, description: STR, scheduledAt: STR, youtube: STR }, [
+        'leadId',
+        'title',
+      ]),
     },
     {
       name: 'webinar.update',
@@ -2026,10 +2054,7 @@ function toolDefs({ clientScoped = false } = {}) {
       name: 'router_sweeps.run',
       description:
         'Batch 178 Leads Router: record that a sweep ran (the check-in Muse makes after hunting). platform is REQUIRED: facebook|x|linkedin|tiktok|instagram|all — a specific platform covers only that platform, ALL covers every LIVE platform (never a planned one) and stamps the coverage on the run. Returns the run plus the follow-driven sweep queries in scope. This records a hunt; it does not browse any platform. Standard/Premium.',
-      inputSchema: schema(
-        { leadId: ID, platform: STR, lead_type: STR, location: STR, run_by: STR },
-        ['platform']
-      ),
+      inputSchema: schema({ leadId: ID, platform: STR, lead_type: STR, location: STR, run_by: STR }, ['platform']),
     },
     {
       name: 'rentals.list',
@@ -2129,7 +2154,8 @@ function toolDefs({ clientScoped = false } = {}) {
           website_platform: {
             type: 'string',
             enum: ['wordpress', 'other'],
-            description: "Batch 116: where an external site lives; only with website_kind='external' (default 'other').",
+            description:
+              "Batch 116: where an external site lives; only with website_kind='external' (default 'other').",
           },
           status: { type: 'string' },
           notes: { type: 'string' },
@@ -2303,7 +2329,7 @@ function toolDefs({ clientScoped = false } = {}) {
     {
       name: 'design.templates',
       description:
-        'Batch 197: the section custom-template hooks manifest — for each section type, whether a fully custom layout is offered via section.template on design.deliver / website.edit sections, the substitution tokens ({{name}}), loops ({{#items}}…{{/items}}) and conditionals ({{#if name}}…{{/if}}) a template may use with each value\'s escaping kind (text/html/url), and the REQUIRED functional hooks a template must keep (form field names, the form action token, anchor ids, data attributes) — a template missing a required hook is rejected at save with the hook named. Types with templates:false are manifest-only in v1, with the reason recorded (chrome, free-HTML, browser-rendered mounts). Read-only; consult BEFORE writing a template so the layout keeps the module\'s contract.',
+        "Batch 197 + 199: the section custom-template hooks manifest — for each section type, whether a fully custom layout is offered via section.template on design.deliver / website.edit sections, the substitution tokens ({{name}}), loops ({{#items}}…{{/items}}) and conditionals ({{#if name}}…{{/if}}) a template may use with each value's escaping kind (text/html/url), and the REQUIRED functional hooks a template must keep (form field names, the form action token, anchor ids, data attributes) — a template missing a required hook is rejected at save with the hook named. Types with templates:false are manifest-only in v1, with the reason recorded (chrome, free-HTML, browser-rendered mounts). Batch 199 adds the section SCRIPT slot on the same types: the response's \"scripts\" block lists the platform-pinned library registry (three for 3D, gsap) and the rules for section.js / libs / jsModule / jsExpect — agent-chosen script URLs are rejected, libraries are registry-only. Read-only; consult BEFORE writing a template or a section script so the layout keeps the module's contract.",
       inputSchema: {
         type: 'object',
         properties: { type: { type: 'string' } },
@@ -3242,22 +3268,28 @@ async function callParityTool(ws, name, a) {
     case 'design.templates': {
       const templates = require('../src/sectionTemplates');
       const summary = templates.manifestSummary();
+      // Batch 199: the section script slot (Part D1) rides the same
+      // surface — availability mirrors the template fence, and the
+      // registry + rules ship in every response.
+      const scripts = require('../src/sectionScripts').scriptsSummary();
       const only = a.type != null ? String(a.type).trim() : '';
       if (only) {
         const entry = summary.types[only];
         return {
           type: only,
           ...(entry || {}),
+          scripts: { available: !!(entry && entry.templates), ...scripts },
           note: entry
             ? entry.templates
-              ? 'Set section.template to sanitized HTML + substitution tokens on design.deliver / website.edit sections; every required hook must be present or the save is rejected naming the hook. Omit template for the standard layout.'
+              ? 'Set section.template to sanitized HTML + substitution tokens on design.deliver / website.edit sections; every required hook must be present or the save is rejected naming the hook. Omit template for the standard layout. For JavaScript (incl. 3D), set section.js on the same sections — with or without a template — and declare registry libraries in section.libs; see the scripts block for the rules.'
               : `Custom templates are not offered for ${only} in v1: ${entry.reason || 'manifest-only type.'}`
             : `Unknown section type "${only}". Registered types: ${Object.keys(summary.types).join(', ')}.`,
         };
       }
       return {
         ...summary,
-        note: 'Set section.template (sanitized HTML + substitution tokens) on design.deliver / website.edit sections for types with templates:true; omit template for the standard layout. A template missing a required hook is rejected at save with the hook named; scripts and event handlers are stripped.',
+        scripts,
+        note: 'Set section.template (sanitized HTML + substitution tokens) on design.deliver / website.edit sections for types with templates:true; omit template for the standard layout. A template missing a required hook is rejected at save with the hook named; scripts and event handlers are stripped from templates. For JavaScript (incl. 3D), set section.js + section.libs (registry libraries only) on the same types — see the scripts block.',
       };
     }
     case 'fonts.list': {
@@ -3964,14 +3996,12 @@ async function callClientTool(ws, name, a, ctx = {}) {
     if (!leadId) throw new Error('leadId is required');
     return domain.withDb(ws, (db) => ({
       plan: planId,
-      products: modules
-        .listProducts(db, leadId, { includeDrafts: a.includeDrafts !== false })
-        .map((p) => {
-          // Batch 127: products carry their variant structure; the
-          // label is the honest variant-aware price.
-          const shaped = modules.withProductVariants(db, leadId, p);
-          return { ...shaped, price_label: modules.productPriceLabel(db, leadId, p) };
-        }),
+      products: modules.listProducts(db, leadId, { includeDrafts: a.includeDrafts !== false }).map((p) => {
+        // Batch 127: products carry their variant structure; the
+        // label is the honest variant-aware price.
+        const shaped = modules.withProductVariants(db, leadId, p);
+        return { ...shaped, price_label: modules.productPriceLabel(db, leadId, p) };
+      }),
     }));
   }
   if (name === 'ecommerce.listOrders') {
@@ -4633,10 +4663,19 @@ async function callClientTool(ws, name, a, ctx = {}) {
       // admin REST save (the voice-webhook pointing stays a REST-side
       // effect; the numbers' webhooks are re-pointed on the next
       // admin save if they were not already).
-      if (a.rotate_enabled != null || a.rotateEnabled != null || Array.isArray(a.rotation_numbers) || Array.isArray(a.rotationNumbers)) {
+      if (
+        a.rotate_enabled != null ||
+        a.rotateEnabled != null ||
+        Array.isArray(a.rotation_numbers) ||
+        Array.isArray(a.rotationNumbers)
+      ) {
         modules.setCallTrackingRotation(db, leadId, {
           rotateEnabled:
-            a.rotate_enabled != null ? !!a.rotate_enabled : a.rotateEnabled != null ? !!a.rotateEnabled : current.rotate_enabled,
+            a.rotate_enabled != null
+              ? !!a.rotate_enabled
+              : a.rotateEnabled != null
+                ? !!a.rotateEnabled
+                : current.rotate_enabled,
           numbers: Array.isArray(a.rotation_numbers)
             ? a.rotation_numbers
             : Array.isArray(a.rotationNumbers)
@@ -5027,7 +5066,10 @@ async function callClientTool(ws, name, a, ctx = {}) {
   if (name === 'categories.create') {
     const leadId = resolveLeadId(ctx, a.leadId);
     if (!leadId) throw new Error('leadId is required');
-    return domain.withDb(ws, (db) => ({ plan: planId, category: require('./categories').createCategory(db, leadId, a) }));
+    return domain.withDb(ws, (db) => ({
+      plan: planId,
+      category: require('./categories').createCategory(db, leadId, a),
+    }));
   }
   if (name === 'categories.update') {
     const leadId = resolveLeadId(ctx, a.leadId);
@@ -5529,7 +5571,10 @@ function validateArgTypes(name, args, ctx) {
     const declared = props[key] && props[key].type;
     if (!declared) continue;
     const isObjectLike = typeof value === 'object';
-    if ((declared === 'string' || declared === 'integer' || declared === 'number' || declared === 'boolean') && isObjectLike) {
+    if (
+      (declared === 'string' || declared === 'integer' || declared === 'number' || declared === 'boolean') &&
+      isObjectLike
+    ) {
       return `Argument "${key}" for ${name} must be a ${declared} — objects and arrays are not accepted here.`;
     }
     if ((declared === 'array' || declared === 'object') && !isObjectLike) {
@@ -5592,10 +5637,7 @@ async function callTool(workspaceId, name, args = {}, ctx = {}) {
     // are untouched.
     const partnersMod = require('./partners');
     const PARTNER_SETTINGS_TOOLS = ['settings.set', 'automation.pause', 'automation.resume', 'prompts.save'];
-    if (
-      PARTNER_SETTINGS_TOOLS.includes(name) ||
-      (name === 'discovery.schedule' && a.action === 'set')
-    ) {
+    if (PARTNER_SETTINGS_TOOLS.includes(name) || (name === 'discovery.schedule' && a.action === 'set')) {
       if (await partnersMod.workspaceHasPartner(ws)) {
         return {
           ok: false,

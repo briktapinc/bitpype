@@ -309,9 +309,7 @@ async function leadsDelete(workspaceId, id) {
     }
   } catch (e) {
     throw Object.assign(
-      new Error(
-        `Lead ${leadId} was deleted, but removing its portal account(s) failed: ${(e && e.message) || e}`
-      ),
+      new Error(`Lead ${leadId} was deleted, but removing its portal account(s) failed: ${(e && e.message) || e}`),
       { code: 'PORTAL_SWEEP_FAILED' }
     );
   }
@@ -795,9 +793,7 @@ function materializeWebsiteExport(db, workspaceId, siteId, opts = {}) {
       const mods165 = require('./siteModules');
       const embedRow = mods165.getEmbedRow(db, leadIdW, 'webinar');
       if (embedRow && mods165.moduleEmbedActive(embedRow)) {
-        const cacheRow = db
-          .prepare('SELECT value FROM settings WHERE key = ?')
-          .get(`webinar_shells.${Number(siteId)}`);
+        const cacheRow = db.prepare('SELECT value FROM settings WHERE key = ?').get(`webinar_shells.${Number(siteId)}`);
         let shells = [];
         try {
           shells = cacheRow ? JSON.parse(cacheRow.value || '[]') : [];
@@ -1914,15 +1910,26 @@ async function sitesPurgeSite(workspaceId, id, confirmName) {
       workspaceId: Number(workspaceId),
     });
   } catch (e) {
-    cloudflare = { domains: [], dnsRemoved: 0, project: null, projectDeleted: false, errors: [`teardown: ${(e && e.message) || e}`] };
+    cloudflare = {
+      domains: [],
+      dnsRemoved: 0,
+      project: null,
+      projectDeleted: false,
+      errors: [`teardown: ${(e && e.message) || e}`],
+    };
   }
   const destroyed = engine.destroyWebsite(db, Number(id), { workspaceId: Number(workspaceId) });
-  if (cloudflare && (cloudflare.projectDeleted || cloudflare.dnsRemoved || (cloudflare.errors && cloudflare.errors.length))) {
+  if (
+    cloudflare &&
+    (cloudflare.projectDeleted || cloudflare.dnsRemoved || (cloudflare.errors && cloudflare.errors.length))
+  ) {
     try {
       db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
         'websites',
         `Purge Cloudflare teardown for website #${Number(id)}: project=${cloudflare.project || '—'} deleted=${!!cloudflare.projectDeleted} dnsRemoved=${cloudflare.dnsRemoved || 0}` +
-          (cloudflare.errors && cloudflare.errors.length ? ` ERRORS: ${cloudflare.errors.join(' | ').slice(0, 1200)}` : '')
+          (cloudflare.errors && cloudflare.errors.length
+            ? ` ERRORS: ${cloudflare.errors.join(' | ').slice(0, 1200)}`
+            : '')
       );
     } catch {
       /* logging best-effort */
@@ -2341,8 +2348,10 @@ function validatePages(pages) {
             throw siteErr(
               'UNKNOWN_VARIANT',
               `pages[${i}].sections[${j}]: unknown variant ${JSON.stringify(s.variant)} for section type "${s.type}". Valid variants: ${
-                variants.idsFor(s.type).filter((x) => x !== variants.STANDARD).join(', ') ||
-                '(none — omit variant for the standard layout)'
+                variants
+                  .idsFor(s.type)
+                  .filter((x) => x !== variants.STANDARD)
+                  .join(', ') || '(none — omit variant for the standard layout)'
               }.`
             );
           }
@@ -2371,7 +2380,29 @@ function validatePages(pages) {
             throw siteErr(first.code, `pages[${i}].sections[${j}]: ${first.message}`);
           }
         }
+        // Batch 199 — section script slot (Part D1): validated via
+        // src/sectionScripts.js — type availability, size caps,
+        // syntax, the static denylist, registry library coherence.
+        // A bad script is rejected here, naming the rule.
+        if (s.js != null || s.libs != null || s.jsModule != null || s.jsExpect != null) {
+          const scripts = require('../src/sectionScripts');
+          const problems = scripts.validateSectionScript(s);
+          if (problems.length) {
+            throw siteErr(problems[0].code, `pages[${i}].sections[${j}]: ${problems[0].message}`);
+          }
+        }
       });
+      // Batch 199 — per-page script size cap (spec §7.3).
+      if (hasSections) {
+        const scripts = require('../src/sectionScripts');
+        const total = scripts.pageJsChars(p.sections);
+        if (total > scripts.MAX_PAGE_JS_CHARS) {
+          throw siteErr(
+            'PAGE_JS_TOO_LONG',
+            `pages[${i}]: section scripts total ${total} characters — the per-page limit is ${scripts.MAX_PAGE_JS_CHARS}.`
+          );
+        }
+      }
     }
   });
   assertNoSectionScripts(pages);
@@ -2396,7 +2427,18 @@ const PAGE_TOP_KEYS = new Set([
   'menuParent',
   'menu_parent',
 ]);
-const SECTION_TOP_KEYS = new Set(['type', 'content', 'cols', 'cells', 'variant', 'template']);
+const SECTION_TOP_KEYS = new Set([
+  'type',
+  'content',
+  'cols',
+  'cells',
+  'variant',
+  'template',
+  'js',
+  'libs',
+  'jsModule',
+  'jsExpect',
+]);
 const THEME_TOP_KEYS = new Set([
   'primary',
   'secondary',
@@ -2482,7 +2524,7 @@ function collectSaveShapeWarnings(pages, theme) {
           for (const sk of Object.keys(s)) {
             if (!SECTION_TOP_KEYS.has(sk)) {
               warnings.push(
-                `pages[${i}].sections[${j}] has unknown key "${sk}" — use type, content, cols, cells (columns layout), variant (design variant id), template (custom layout HTML).`
+                `pages[${i}].sections[${j}] has unknown key "${sk}" — use type, content, cols, cells (columns layout), variant (design variant id), template (custom layout HTML), js/libs/jsModule/jsExpect (section script, Batch 199).`
               );
             }
           }
@@ -5736,7 +5778,12 @@ function adminFormSubmissions(workspaceId, formId, opts = {}) {
       limit: opts.limit || 50,
       offset: opts.offset || 0,
     });
-    return { form: out.form, lead_id: row.lead_id, lead_name: lead ? lead.business_name : '', submissions: out.submissions };
+    return {
+      form: out.form,
+      lead_id: row.lead_id,
+      lead_name: lead ? lead.business_name : '',
+      submissions: out.submissions,
+    };
   });
 }
 
@@ -5890,7 +5937,12 @@ function runClearAll(db, { area, surface, scopeLabel, items, remove }) {
     db.prepare('INSERT INTO activity_log (area, message) VALUES (?, ?)').run(
       area,
       `Staff cleared ${surface} (${scopeLabel}): deleted ${deleted.length}, skipped ${skipped.length}` +
-        (skipped.length ? ` — skipped: ${skipped.map((s) => `#${s.id} (${s.reason})`).join('; ').slice(0, 900)}` : '')
+        (skipped.length
+          ? ` — skipped: ${skipped
+              .map((s) => `#${s.id} (${s.reason})`)
+              .join('; ')
+              .slice(0, 900)}`
+          : '')
     );
   } catch {
     /* activity log is best-effort */
@@ -5982,9 +6034,7 @@ function adminClearAllMembers(workspaceId, opts = {}) {
   return withDb(workspaceId, (db) => {
     const modules = require('./siteModules');
     modules.ensureTables(db);
-    const items = db
-      .prepare('SELECT id FROM site_members WHERE lead_id = ? ORDER BY id ASC')
-      .all(leadId);
+    const items = db.prepare('SELECT id FROM site_members WHERE lead_id = ? ORDER BY id ASC').all(leadId);
     return runClearAll(db, {
       area: 'memberships',
       surface: 'members',
@@ -6450,21 +6500,15 @@ async function adminCallsOverview(workspaceId, opts = {}) {
   for (const b of data.businesses) {
     let plan = 'free';
     try {
-      const leadRow = withDb(workspaceId, (db) =>
-        db.prepare('SELECT email FROM leads WHERE id = ?').get(b.lead_id)
-      );
-      plan = await billing.effectivePlan(
-        workspaceId,
-        leadRow && leadRow.email ? { email: leadRow.email } : {}
-      );
+      const leadRow = withDb(workspaceId, (db) => db.prepare('SELECT email FROM leads WHERE id = ?').get(b.lead_id));
+      plan = await billing.effectivePlan(workspaceId, leadRow && leadRow.email ? { email: leadRow.email } : {});
     } catch (e) {
       plan = 'free';
       console.warn('[domain] adminCallsOverview plan:', e.message || e);
       if (!data.warnings.some((w) => w.section === 'plan')) {
         data.warnings.push({
           section: 'plan',
-          message:
-            'Plan details for one or more businesses could not be loaded — a paid business may show as free.',
+          message: 'Plan details for one or more businesses could not be loaded — a paid business may show as free.',
         });
       }
     }
@@ -6493,19 +6537,14 @@ async function adminPurchaseCallNumber(workspaceId, { leadId, phoneNumber } = {}
   const number = modules.normalizeE164(phoneNumber, 'Phone number');
   // Free-plan gate (addendum #3): buying a number requires a paid plan.
   const billing = require('./billing');
-  const leadRow = withDb(workspaceId, (db) =>
-    db.prepare('SELECT email FROM leads WHERE id = ?').get(id)
-  );
+  const leadRow = withDb(workspaceId, (db) => db.prepare('SELECT email FROM leads WHERE id = ?').get(id));
   if (!leadRow) {
     const e = new Error('That business was not found in this workspace.');
     e.code = 'NOT_FOUND';
     e.status = 404;
     throw e;
   }
-  const plan = await billing.effectivePlan(
-    workspaceId,
-    leadRow && leadRow.email ? { email: leadRow.email } : {}
-  );
+  const plan = await billing.effectivePlan(workspaceId, leadRow && leadRow.email ? { email: leadRow.email } : {});
   if (String(plan).toLowerCase() === 'free') {
     const e = new Error(
       'Buying a tracking number requires a paid plan. Upgrade first — once on a paid plan, numbers run about $1.15/mo on Twilio.'
@@ -6545,9 +6584,7 @@ async function adminSaveCallTrackingConfig(workspaceId, body = {}) {
     e.status = 400;
     throw e;
   }
-  const leadRow = withDb(workspaceId, (db) =>
-    db.prepare('SELECT email, phone FROM leads WHERE id = ?').get(id)
-  );
+  const leadRow = withDb(workspaceId, (db) => db.prepare('SELECT email, phone FROM leads WHERE id = ?').get(id));
   if (!leadRow) {
     const e = new Error('That business was not found in this workspace.');
     e.code = 'NOT_FOUND';
@@ -6557,10 +6594,7 @@ async function adminSaveCallTrackingConfig(workspaceId, body = {}) {
   // Free-plan gate (addendum #3), same rule as purchase/MCP: a first
   // display number needs a paid plan; an existing number keeps working.
   const billing = require('./billing');
-  const plan = await billing.effectivePlan(
-    workspaceId,
-    leadRow.email ? { email: leadRow.email } : {}
-  );
+  const plan = await billing.effectivePlan(workspaceId, leadRow.email ? { email: leadRow.email } : {});
   // Pre-validate the dialable fields BEFORE any write, so a save that
   // fails validation (including a rotation conflict below) changes
   // nothing at all.
@@ -6695,10 +6729,7 @@ function adminListNumberPool(workspaceId) {
 async function adminAddPoolNumber(workspaceId, body = {}) {
   const modules = require('./siteModules');
   const twilioClient = require('./twilioClient');
-  const number = modules.normalizeE164(
-    body.phoneNumber != null ? body.phoneNumber : body.phone_number,
-    'Phone number'
-  );
+  const number = modules.normalizeE164(body.phoneNumber != null ? body.phoneNumber : body.phone_number, 'Phone number');
   if (!number) {
     const e = new Error('A phone number is required.');
     e.code = 'VALIDATION';
@@ -6769,7 +6800,10 @@ function seoGscKey(websiteId) {
 }
 function seoSetGscToken(workspaceId, websiteId, token) {
   return withDb(workspaceId, (db) => {
-    const clean = String(token || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200);
+    const clean = String(token || '')
+      .trim()
+      .replace(/[^A-Za-z0-9_-]/g, '')
+      .slice(0, 200);
     setSetting(db, seoGscKey(websiteId), clean);
     logActivity(db, 'seo', `GSC verification token ${clean ? 'set' : 'cleared'} for website ${Number(websiteId)}.`);
     return { websiteId: Number(websiteId), gscToken: clean };

@@ -649,9 +649,20 @@ function sectionTypes(page) {
         s && typeof s.variant === 'string' && s.variant.trim() && s.variant.trim() !== 'standard'
           ? s.variant.trim()
           : '';
-      return v ? `${t}@${v}` : t;
+      // Batch 199 — a section carrying a script contributes a "+js"
+      // suffix ("+3d" when it declares the WebGL library), so a
+      // scripted section never fingerprints as identical to its
+      // static twin. Script-free sections are unchanged, so every
+      // existing site's layout hash stands until a script is added.
+      const jsSuffix =
+        s && typeof s.js === 'string' && s.js.trim()
+          ? Array.isArray(s.libs) && s.libs.includes('three')
+            ? '+3d'
+            : '+js'
+          : '';
+      return (v ? `${t}@${v}` : t) + jsSuffix;
     })
-    .filter((t) => t && !CHROME_TYPES.has(t.split('@')[0]));
+    .filter((t) => t && !CHROME_TYPES.has(t.split('@')[0].split('+')[0]));
 }
 
 function heroSignal(homePage) {

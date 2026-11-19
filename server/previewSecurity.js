@@ -94,7 +94,10 @@ function resolveSiteFolderSegment(seg) {
 }
 
 function resolvePreviewSite(pathname) {
-  const seg = String(pathname || '').split('/').filter(Boolean)[0] || '';
+  const seg =
+    String(pathname || '')
+      .split('/')
+      .filter(Boolean)[0] || '';
   return resolveSiteFolderSegment(seg);
 }
 
@@ -131,7 +134,9 @@ function decodeSegmentStable(seg) {
  * '..' part is unambiguous traversal.
  */
 function analyzePreviewPath(pathname) {
-  const rawSegs = String(pathname || '').split('/').filter(Boolean);
+  const rawSegs = String(pathname || '')
+    .split('/')
+    .filter(Boolean);
   const segs = [];
   for (const raw of rawSegs) {
     const dec = decodeSegmentStable(raw);
@@ -290,9 +295,7 @@ function sendSuspendedPreview(res) {
 
 function siteIsSuspended(db, siteId) {
   try {
-    const row = db
-      .prepare('SELECT website_id FROM subscription_site_suspensions WHERE website_id = ?')
-      .get(siteId);
+    const row = db.prepare('SELECT website_id FROM subscription_site_suspensions WHERE website_id = ?').get(siteId);
     return !!row;
   } catch {
     return false; // no marker table in this workspace — never suspended
@@ -341,7 +344,7 @@ function isolateStaticPreview(req, res, next) {
   // Enforced response policy also protects direct visits outside an iframe.
   res.setHeader(
     'Content-Security-Policy',
-    "sandbox allow-scripts allow-forms; default-src 'self' https: data: blob:; script-src 'self' https: 'unsafe-inline'; style-src 'self' https: 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' https:; object-src 'none'; frame-ancestors 'self'; form-action https:"
+    "sandbox allow-scripts allow-forms; default-src 'self' https: data: blob:; script-src 'self' https: 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' https: 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' https:; object-src 'none'; frame-ancestors 'self'; form-action https:"
   );
   res.setHeader('Referrer-Policy', 'no-referrer');
   next();

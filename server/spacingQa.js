@@ -919,6 +919,253 @@ function measureTemplateHooksInPage(specs) {
   return out;
 }
 
+/* ------------------------------------------------------------------ */
+/* Batch 199 — SCRIPT PASS (Part D1 export QA, spec §7.2).             */
+/*                                                                     */
+/* A separate pass on a FRESH load, after geometry, so animation       */
+/* state can never contaminate spacing measurements. Scope: only       */
+/* files carrying script markers (section scripts, registry libs,      */
+/* theme/page JS). Listeners observe pageerror / console / requests;   */
+/* the load waits for networkidle2 plus a bounded settle and one       */
+/* scroll-through (IntersectionObserver-driven 3D must start), all     */
+/* inside the shared-browser + hard-deadline discipline above.         */
+/*                                                                     */
+/* FAILS (kind 'script'): a section script that threw (its root        */
+/* carries data-bp-js-error), a lib-missing skip or a failed registry  */
+/* library (data-bp-js-skipped / data-bp-lib-error / failed request),  */
+/* an uncaught pageerror on a scripted page, a SCRIPT request to a     */
+/* non-allowlisted host (allowlist = registry hosts + hosts the page   */
+/* itself declares in src/href), a missing/invisible/zero-size         */
+/* jsExpect target, Part A template hooks eaten after scripts ran,     */
+/* or script transfer over the fail budget. WARNS: console errors      */
+/* and transfer over the warn budget.                                  */
+/* ------------------------------------------------------------------ */
+function measureSectionScriptsInPage() {
+  var out = [];
+  var html = document.documentElement;
+  if (html.hasAttribute('data-bp-lib-error')) {
+    out.push({
+      kind: 'script',
+      selector: 'html',
+      px: 0,
+      text: 'registry library failed to load: ' + html.getAttribute('data-bp-lib-error'),
+    });
+  }
+  document.querySelectorAll('[data-bp-sec]').forEach(function (root) {
+    var type = root.getAttribute('data-ws-section-type') || '';
+    var key = root.getAttribute('data-bp-sec') || '';
+    var sel = '[data-bp-sec="' + key + '"]';
+    if (root.hasAttribute('data-bp-js-error')) {
+      out.push({ kind: 'script', selector: sel, px: 0, text: 'section script (' + type + ') threw at runtime' });
+    }
+    if (root.hasAttribute('data-bp-js-skipped')) {
+      out.push({
+        kind: 'script',
+        selector: sel,
+        px: 0,
+        text: 'section script (' + type + ') skipped: ' + root.getAttribute('data-bp-js-skipped'),
+      });
+    }
+    var expect = root.getAttribute('data-bp-js-expect');
+    if (expect) {
+      var found = null;
+      try {
+        found = root.matches(expect) ? root : root.querySelector(expect);
+      } catch (e) {
+        found = null;
+      }
+      if (!found) {
+        out.push({
+          kind: 'script',
+          selector: sel,
+          px: 0,
+          text: 'jsExpect target missing after script run: ' + expect,
+        });
+      } else {
+        var r = found.getBoundingClientRect();
+        var cs = getComputedStyle(found);
+        if (cs.display === 'none' || cs.visibility === 'hidden' || r.width === 0 || r.height === 0) {
+          out.push({
+            kind: 'script',
+            selector: sel,
+            px: 0,
+            text: 'jsExpect target is not visible/sized: ' + expect,
+          });
+        } else if (found.tagName === 'CANVAS' && (found.width === 0 || found.height === 0)) {
+          out.push({
+            kind: 'script',
+            selector: sel,
+            px: 0,
+            text: 'jsExpect canvas has a zero-size drawing buffer: ' + expect,
+          });
+        }
+      }
+    }
+  });
+  return out;
+}
+
+const SCRIPT_MARKER_RE = /data-ws-section-js|data-bp-lib|data-ws-theme-js|data-ws-page-js/;
+
+function hostsDeclaredInHtml(html) {
+  const hosts = new Set();
+  // Only real tag attributes count — a URL string inside an inline
+  // script's text (s.src = "https://…") is NOT a declaration; that is
+  // precisely the runtime injection the pass must catch.
+  const re =
+    /<(?:script|link|img|iframe|source|video|audio|a)\b[^>]*?\b(?:src|href)\s*=\s*["']https?:\/\/([^/"'\s]+)/gi;
+  let m;
+  while ((m = re.exec(String(html || '')))) hosts.add(m[1].toLowerCase());
+  return hosts;
+}
+
+async function auditScriptPass(page, html, templateSpecs) {
+  const scriptLibs = require('../src/scriptLibs');
+  const violations = [];
+  const warnings = [];
+  const scriptRequestUrls = [];
+  const failedScriptUrls = [];
+  let scriptBytes = 0;
+  const onRequest = (req) => {
+    try {
+      if (req.resourceType() === 'script') scriptRequestUrls.push(req.url());
+    } catch {
+      /* */
+    }
+  };
+  const onResponse = (res) => {
+    try {
+      if (res.request().resourceType() !== 'script') return;
+      res
+        .buffer()
+        .then((b) => {
+          scriptBytes += b.length;
+        })
+        .catch(() => {});
+    } catch {
+      /* */
+    }
+  };
+  const onFailed = (req) => {
+    try {
+      if (req.resourceType() === 'script') failedScriptUrls.push(req.url());
+    } catch {
+      /* */
+    }
+  };
+  const onPageError = (e) => {
+    violations.push({
+      kind: 'script',
+      selector: 'pageerror',
+      px: 0,
+      text: 'uncaught error on a scripted page: ' + String((e && e.message) || e).slice(0, 200),
+    });
+  };
+  const onConsole = (msg) => {
+    try {
+      if (msg.type() === 'error') warnings.push('console error: ' + msg.text().slice(0, 200));
+    } catch {
+      /* */
+    }
+  };
+  page.on('request', onRequest);
+  page.on('response', onResponse);
+  page.on('requestfailed', onFailed);
+  page.on('pageerror', onPageError);
+  page.on('console', onConsole);
+  try {
+    await page.setContent(html, { waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
+    await page
+      .evaluate(async () => {
+        const h = document.body ? document.body.scrollHeight : 0;
+        for (let y = 0; y <= h; y += 600) {
+          window.scrollTo(0, y);
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        window.scrollTo(0, 0);
+      })
+      .catch(() => {});
+    await new Promise((r) => setTimeout(r, 700));
+    const found = await page.evaluate(measureSectionScriptsInPage).catch(() => []);
+    for (const v of found || []) violations.push(v);
+    // Part A hooks re-asserted AFTER scripts ran and settled — a
+    // script that ate a functional hook fails here (spec §6).
+    const hooks = await page.evaluate(measureTemplateHooksInPage, templateSpecs).catch(() => []);
+    for (const v of hooks || []) violations.push(v);
+  } finally {
+    page.off('request', onRequest);
+    page.off('response', onResponse);
+    page.off('requestfailed', onFailed);
+    page.off('pageerror', onPageError);
+    page.off('console', onConsole);
+  }
+  const registryHosts = scriptLibs.registryHosts().map((h) => h.toLowerCase());
+  const ownHosts = hostsDeclaredInHtml(html);
+  // Spec §5.1: external scripts the page itself declares (the
+  // owner's customHead escape hatch) are allowlisted for the fail
+  // rule, but anything outside the registry earns a warning.
+  {
+    const tagRe = /<script\b[^>]*\bsrc\s*=\s*["']https?:\/\/([^/"'\s]+)/gi;
+    let m;
+    const warned = new Set();
+    while ((m = tagRe.exec(String(html || '')))) {
+      const host = m[1].toLowerCase();
+      if (!registryHosts.includes(host) && !warned.has(host)) {
+        warned.add(host);
+        warnings.push(`external script outside the registry: ${host} (prefer section.libs)`);
+      }
+    }
+  }
+  for (const url of scriptRequestUrls) {
+    let host = '';
+    try {
+      host = new URL(url).host.toLowerCase();
+    } catch {
+      continue;
+    }
+    if (!host) continue;
+    if (registryHosts.includes(host) || ownHosts.has(host)) continue;
+    violations.push({
+      kind: 'script',
+      selector: host,
+      px: 0,
+      text: 'script loaded from a non-allowlisted host: ' + String(url).slice(0, 160),
+    });
+  }
+  for (const url of failedScriptUrls) {
+    let host = '';
+    try {
+      host = new URL(url).host.toLowerCase();
+    } catch {
+      continue;
+    }
+    if (registryHosts.includes(host)) {
+      violations.push({
+        kind: 'script',
+        selector: host,
+        px: 0,
+        text: 'registry library request failed: ' + String(url).slice(0, 160),
+      });
+    }
+  }
+  const inlineBytes = (String(html).match(/<script\b[^>]*data-ws-section-js[\s\S]*?<\/script>/g) || []).reduce(
+    (n, s) => n + s.length,
+    0
+  );
+  const totalBytes = scriptBytes + inlineBytes;
+  if (totalBytes > scriptLibs.SCRIPT_FAIL_BYTES) {
+    violations.push({
+      kind: 'script',
+      selector: 'page',
+      px: 0,
+      text: `script transfer ${totalBytes} bytes exceeds the ${scriptLibs.SCRIPT_FAIL_BYTES}-byte budget`,
+    });
+  } else if (totalBytes > scriptLibs.SCRIPT_WARN_BYTES) {
+    warnings.push(`script transfer ${totalBytes} bytes exceeds the ${scriptLibs.SCRIPT_WARN_BYTES}-byte warn budget`);
+  }
+  return { violations, warnings };
+}
+
 /**
  * Measure every page at every width. Returns
  * { pass, detail, violations: [{ page, width, kind, selector, px, text? }] }.
@@ -1060,6 +1307,7 @@ async function assessExportedFilesInner(exported, opts = {}) {
   const templateSpecs = require('../src/sectionTemplates').domHooksByType();
   const browser = await auditBrowser();
   const violations = [];
+  const scriptWarnings = [];
   let audited = 0;
   let page = null;
   try {
@@ -1095,6 +1343,24 @@ async function assessExportedFilesInner(exported, opts = {}) {
           }
         }
       }
+      // Batch 199: the script pass — a fresh load with listeners,
+      // only for files carrying script markers (spec §7.2).
+      if (SCRIPT_MARKER_RE.test(html)) {
+        await page.setViewport({
+          width: widths[0],
+          height: widths[0] <= 700 ? 844 : 960,
+          deviceScaleFactor: 1,
+          isMobile: widths[0] <= 700,
+          hasTouch: widths[0] <= 700,
+        });
+        const sp = await auditScriptPass(page, html, templateSpecs);
+        for (const v of sp.violations || []) {
+          violations.push({ page: rel, width: widths[0], ...v });
+        }
+        for (const w of sp.warnings || []) {
+          scriptWarnings.push(`${rel}: ${w}`);
+        }
+      }
     }
   } finally {
     if (page) {
@@ -1118,6 +1384,7 @@ async function assessExportedFilesInner(exported, opts = {}) {
     filesTotal: all.length,
     filesCapped: all.length > files.length,
     violations: violations.slice(0, 40),
+    warnings: scriptWarnings.slice(0, 20),
     detail: violations.length ? parts.join('; ').slice(0, 900) : '',
     auditedAt: new Date().toISOString(),
   };
@@ -1129,6 +1396,7 @@ module.exports = {
   measureSpacingInPage,
   measureGeometryInPage,
   measureTemplateHooksInPage,
+  measureSectionScriptsInPage,
   assessSpacing,
   assessExportedFiles,
   GEOMETRY_CARD_SELECTOR,

@@ -1290,7 +1290,8 @@ function syncFreeformNavOrder(pages, opts = {}) {
 /** Module types whose page mount must never be duplicated. */
 const LAYOUT_DUPLICATE_FENCE = {
   chatbot: 'The chat widget is a sitewide overlay — one per site, not a page section you can stack.',
-  checkout: 'Checkout is the site’s single checkout surface — a second mount would render two live checkout forms sharing one cart.',
+  checkout:
+    'Checkout is the site’s single checkout surface — a second mount would render two live checkout forms sharing one cart.',
 };
 
 /** Section types the editor never duplicates or deletes (page chrome). */
@@ -1504,7 +1505,10 @@ function freshenSectionIdentity(pageSections, copy) {
     if (anchor) used.add(anchor);
   }
   const freshen = (base) => {
-    const stem = String(base || 'section').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || 'section';
+    const stem =
+      String(base || 'section')
+        .replace(/[^a-zA-Z0-9_-]/g, '')
+        .slice(0, 48) || 'section';
     let candidate = `${stem}-copy`;
     let n = 2;
     while (used.has(candidate)) {
@@ -1515,7 +1519,12 @@ function freshenSectionIdentity(pageSections, copy) {
     return candidate;
   };
   if (typeof copy.id === 'string' && copy.id) copy.id = freshen(copy.id);
-  if (copy.content && typeof copy.content === 'object' && typeof copy.content.anchorId === 'string' && copy.content.anchorId) {
+  if (
+    copy.content &&
+    typeof copy.content === 'object' &&
+    typeof copy.content.anchorId === 'string' &&
+    copy.content.anchorId
+  ) {
     copy.content.anchorId = freshen(copy.content.anchorId);
   }
   return copy;
@@ -1631,6 +1640,7 @@ function validateEditorSections(sections) {
 
 const sectionVariants = require('./sectionVariants');
 const sectionTemplates = require('./sectionTemplates');
+const sectionScripts = require('./sectionScripts');
 
 function getSectionVariant(section) {
   return sectionVariants.variantOf(section);
@@ -1647,10 +1657,7 @@ function setSectionVariant(section, id) {
   }
   const type = String(section.type || '');
   if (LAYOUT_CHROME_TYPES.has(type)) {
-    throw layoutKnobError(
-      'CHROME_VARIANT',
-      `The ${type} is page chrome — chrome has no design variants in v1.`
-    );
+    throw layoutKnobError('CHROME_VARIANT', `The ${type} is page chrome — chrome has no design variants in v1.`);
   }
   const m = id == null ? '' : String(id).trim();
   if (m === '' || m === sectionVariants.STANDARD) {
@@ -1660,9 +1667,9 @@ function setSectionVariant(section, id) {
   if (!sectionVariants.isValidVariant(type, m)) {
     throw layoutKnobError(
       'UNKNOWN_VARIANT',
-      `Unknown variant "${m}" for section type "${type}". Valid variants: ${sectionVariants
-        .idsFor(type)
-        .join(', ') || '(none — this type has no variants)'}.`
+      `Unknown variant "${m}" for section type "${type}". Valid variants: ${
+        sectionVariants.idsFor(type).join(', ') || '(none — this type has no variants)'
+      }.`
     );
   }
   section.variant = m;
@@ -1804,6 +1811,95 @@ function validateSectionTemplates(sections) {
       problems.push({ code: p.code, message: `${where}: ${p.message}` });
     }
   });
+  return problems;
+}
+
+/* ------------------------------------------------------------------ */
+/* Section scripts (Batch 199, Part D1) — section.js / libs /          */
+/* jsModule / jsExpect                                                 */
+/*                                                                     */
+/* Same storage discipline as templates (Batch 197): every field       */
+/* exists ONLY when set, so a script-free section renders              */
+/* byte-identically to before. setSectionJs validates through          */
+/* src/sectionScripts.js (caps, syntax, denylist, registry libs), so   */
+/* an invalid script can never be stored through the model layer.      */
+/* ------------------------------------------------------------------ */
+
+/** The section's script; '' when unset. */
+function getSectionJs(section) {
+  return sectionScripts.jsOf(section || {});
+}
+
+/**
+ * Set or clear a section's script fields. `fields` is the full set
+ * { js, libs, jsModule, jsExpect } — pass js '' / null / undefined
+ * (with no other fields) to clear ALL four (the properties are
+ * deleted — unset stays unset). Throws a coded error mirroring
+ * layoutKnobError on any validation problem, naming the rule.
+ */
+function setSectionJs(section, fields) {
+  if (!section || typeof section !== 'object') {
+    throw layoutKnobError('INVALID_SECTION', 'setSectionJs needs a section object.');
+  }
+  const f = fields && typeof fields === 'object' ? fields : {};
+  const clearing =
+    (f.js === undefined || f.js === null || f.js === '') && f.libs == null && f.jsModule == null && f.jsExpect == null;
+  if (clearing) {
+    delete section.js;
+    delete section.libs;
+    delete section.jsModule;
+    delete section.jsExpect;
+    return section;
+  }
+  const candidate = Object.assign({}, section, {
+    js: f.js,
+    libs: f.libs,
+    jsModule: f.jsModule,
+    jsExpect: f.jsExpect,
+  });
+  const problems = sectionScripts.validateSectionScript(candidate);
+  if (problems.length) {
+    throw layoutKnobError(problems[0].code, problems[0].message);
+  }
+  section.js = f.js;
+  if (Array.isArray(f.libs) && f.libs.length) section.libs = f.libs.slice();
+  else delete section.libs;
+  if (f.jsModule === true) section.jsModule = true;
+  else delete section.jsModule;
+  if (typeof f.jsExpect === 'string' && f.jsExpect.trim()) section.jsExpect = f.jsExpect.trim();
+  else delete section.jsExpect;
+  return section;
+}
+
+/** True when the section carries a script. */
+function hasSectionJs(section) {
+  return sectionScripts.hasSectionJs(section || {});
+}
+
+/**
+ * Save-path validation for section scripts: returns { code, message }
+ * problems — empty when every stored script field set is valid
+ * (availability, caps, syntax, denylist, registry coherence) and the
+ * page's total script size is within the per-page cap. Mirrors
+ * validateSectionTemplates; used beside it on the write paths.
+ */
+function validateSectionScripts(sections) {
+  const problems = [];
+  if (!Array.isArray(sections)) return problems;
+  sections.forEach((section, index) => {
+    if (!section || typeof section !== 'object') return;
+    const where = `section ${index + 1} (${section.type || 'custom'})`;
+    for (const p of sectionScripts.validateSectionScript(section)) {
+      problems.push({ code: p.code, message: `${where}: ${p.message}` });
+    }
+  });
+  const total = sectionScripts.pageJsChars(sections);
+  if (total > sectionScripts.MAX_PAGE_JS_CHARS) {
+    problems.push({
+      code: 'PAGE_JS_TOO_LONG',
+      message: `page section scripts total ${total} characters — the per-page limit is ${sectionScripts.MAX_PAGE_JS_CHARS}.`,
+    });
+  }
   return problems;
 }
 
@@ -1952,9 +2048,7 @@ function describeEditorSection(section, index, resolveModuleType) {
     chrome,
     movable: isLayoutMovable(section),
     canDuplicate: !chrome && !fence,
-    duplicateReason: chrome
-      ? 'Page chrome exists once per page.'
-      : fence || null,
+    duplicateReason: chrome ? 'Page chrome exists once per page.' : fence || null,
     canDelete: !chrome,
     canStyle: !chrome,
     paddingPx: getSectionPaddingPx(section),
@@ -1982,6 +2076,14 @@ function describeEditorSection(section, index, resolveModuleType) {
     canTemplate: sectionTemplates.isTemplateEnabled(t),
     hasTemplate: hasSectionTemplate(section),
     templateNote: sectionTemplates.isTemplateEnabled(t) ? null : sectionTemplates.templateDisabledReason(t),
+    // Batch 199: section script slot — read-only info for structure
+    // views (no JS editor in the portal canvas in v1; scripts never
+    // execute there). Availability mirrors the template fence.
+    canJs: sectionTemplates.isTemplateEnabled(t),
+    hasJs: hasSectionJs(section),
+    jsNote: sectionTemplates.isTemplateEnabled(t)
+      ? null
+      : `Section scripts are not offered for this type in v1: ${sectionTemplates.templateDisabledReason(t)}`,
   };
 }
 
@@ -2045,6 +2147,10 @@ module.exports = {
   setSectionTemplate,
   hasSectionTemplate,
   validateSectionTemplates,
+  getSectionJs,
+  setSectionJs,
+  hasSectionJs,
+  validateSectionScripts,
   LAYOUT_NON_BAND_MODULE_TYPES,
   isLayoutMovable,
   moveSectionToIndex,

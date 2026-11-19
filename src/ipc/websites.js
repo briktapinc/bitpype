@@ -81,8 +81,10 @@ function validatePages(pages) {
             throw siteErr(
               'UNKNOWN_VARIANT',
               `pages[${i}].sections[${j}]: unknown variant ${JSON.stringify(s.variant)} for section type "${s.type}". Valid variants: ${
-                variants.idsFor(s.type).filter((x) => x !== variants.STANDARD).join(', ') ||
-                '(none — omit variant for the standard layout)'
+                variants
+                  .idsFor(s.type)
+                  .filter((x) => x !== variants.STANDARD)
+                  .join(', ') || '(none — omit variant for the standard layout)'
               }.`
             );
           }
@@ -110,7 +112,27 @@ function validatePages(pages) {
             throw siteErr(first.code, `pages[${i}].sections[${j}]: ${first.message}`);
           }
         }
+        // Batch 199 — section script slot (Part D1), mirroring
+        // server/domain.js: validated via src/sectionScripts.js.
+        if (s.js != null || s.libs != null || s.jsModule != null || s.jsExpect != null) {
+          const scripts = require('../sectionScripts');
+          const problems = scripts.validateSectionScript(s);
+          if (problems.length) {
+            throw siteErr(problems[0].code, `pages[${i}].sections[${j}]: ${problems[0].message}`);
+          }
+        }
       });
+      // Batch 199 — per-page script size cap (spec §7.3).
+      if (hasSections) {
+        const scripts = require('../sectionScripts');
+        const total = scripts.pageJsChars(p.sections);
+        if (total > scripts.MAX_PAGE_JS_CHARS) {
+          throw siteErr(
+            'PAGE_JS_TOO_LONG',
+            `pages[${i}]: section scripts total ${total} characters — the per-page limit is ${scripts.MAX_PAGE_JS_CHARS}.`
+          );
+        }
+      }
     }
   });
   return pages;

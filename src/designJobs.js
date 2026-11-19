@@ -2145,6 +2145,12 @@ function validateWebsitePayload(payload, previousPages = [], previousTheme = {})
       const problems = structure.validateSectionTemplates(page.sections || []);
       if (problems.length) throw fail(problems[0].code, problems[0].message);
     }
+    // Batch 199 — section scripts (Part D1): caps, syntax, denylist
+    // and registry coherence re-checked on the deliver path too.
+    for (const page of payload.pages) {
+      const problems = structure.validateSectionScripts(page.sections || []);
+      if (problems.length) throw fail(problems[0].code, problems[0].message);
+    }
   }
   require('./siteContentQuality').assertNoNewDefects(payload.pages, previousPages, payload.theme, previousTheme);
   // Reject class-heavy freeform HTML with missing/unapplied CSS before it becomes live.
@@ -2352,7 +2358,10 @@ async function deliverJob(db, jobId, payload, agentClaims, opts = {}) {
             else pages.forEach((s) => scopeUnion.add(String(s)));
           }
           const mergedPlan = {
-            intent: gatePlans.map((p) => (p && p.intent) || '').filter(Boolean).join(' '),
+            intent: gatePlans
+              .map((p) => (p && p.intent) || '')
+              .filter(Boolean)
+              .join(' '),
             size: 'big',
             scope: { pages: scopeAll ? ['all'] : [...scopeUnion] },
             steps: gatePlans.flatMap((p) => (p && p.steps) || []),
@@ -2374,7 +2383,11 @@ async function deliverJob(db, jobId, payload, agentClaims, opts = {}) {
           const verifyRecord = {
             state: report.verdict === 'pass' ? 'passed' : 'failed',
             at: new Date().toISOString(),
-            checks: (report.checks || []).map((c) => ({ kind: c.kind, pass: !!c.pass, actual: String(c.actual || '') })),
+            checks: (report.checks || []).map((c) => ({
+              kind: c.kind,
+              pass: !!c.pass,
+              actual: String(c.actual || ''),
+            })),
             failures: report.failures || [],
           };
           const briefNow = parseJson(getRow(db, jobId).brief, {}) || {};

@@ -30,6 +30,7 @@ const checks = [
   'batch196-training-format-switch-regressions',
   'batch197-module-custom-layouts-regressions',
   'batch198-contact-form-embed-templates-regressions',
+  'batch199-section-scripts-regressions',
   'google-reviews-regressions',
   'seo-foundations-regressions',
   'blog-static-regressions',

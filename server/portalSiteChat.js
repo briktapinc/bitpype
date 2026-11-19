@@ -10,9 +10,13 @@
 const path = require('path');
 const portalTabs = require('./portalTabs');
 const { appUrl } = require('./stripeClient');
-const { resolvePreviewUrl, pagesHaveEditableSections, pagesHaveFreeformHtml, resolveClientSite } = require('./portalShared');
+const {
+  resolvePreviewUrl,
+  pagesHaveEditableSections,
+  pagesHaveFreeformHtml,
+  resolveClientSite,
+} = require('./portalShared');
 const { renderClientSite, publishClientSitePreview, syncDesignDeliverablePages } = require('./portalSiteEdits');
-
 
 /**
  * Portal Muse agent chat: run lead-scoped improve loop, then return fresh editable HTML.
@@ -145,7 +149,27 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
     lines.push(`Website: ${clip(site.name, 90) || 'Untitled'} (status ${clip(site.status, 20) || 'draft'})`);
     const theme = site.theme && typeof site.theme === 'object' ? site.theme : {};
     const themeBits = [];
-    for (const key of ['primary', 'secondary', 'bg', 'text', 'headingFont', 'font', 'brandName', 'logoMode', 'tone', 'primaryColor', 'primary_color', 'secondaryColor', 'accentColor', 'backgroundColor', 'textColor', 'fontHeading', 'fontBody', 'logoUrl', 'logo']) {
+    for (const key of [
+      'primary',
+      'secondary',
+      'bg',
+      'text',
+      'headingFont',
+      'font',
+      'brandName',
+      'logoMode',
+      'tone',
+      'primaryColor',
+      'primary_color',
+      'secondaryColor',
+      'accentColor',
+      'backgroundColor',
+      'textColor',
+      'fontHeading',
+      'fontBody',
+      'logoUrl',
+      'logo',
+    ]) {
       if (theme[key] != null && String(theme[key]).trim() !== '') {
         themeBits.push(`${key}: ${clip(theme[key], 60)}`);
       }
@@ -208,7 +232,10 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
       if (refs.length) {
         lines.push(
           `Cross-module links in place: ${refs
-            .map((r) => `${r.consumer_type}#${r.consumer_id} ← ${r.provider_type}#${r.provider_id}${r.role ? ` (${r.role})` : ''}`)
+            .map(
+              (r) =>
+                `${r.consumer_type}#${r.consumer_id} ← ${r.provider_type}#${r.provider_id}${r.role ? ` (${r.role})` : ''}`
+            )
             .join('; ')}`
         );
       }
@@ -254,7 +281,10 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
       if (qrCodes.length) {
         const shown = qrCodes
           .slice(0, 8)
-          .map((c) => `"${clip(c.name, 40)}" → ${c.target_kind}:${clip(c.target_ref || c.wifi_ssid || '', 40)} (${c.status})`)
+          .map(
+            (c) =>
+              `"${clip(c.name, 40)}" → ${c.target_kind}:${clip(c.target_ref || c.wifi_ssid || '', 40)} (${c.status})`
+          )
           .join('; ');
         lines.push(
           `QR codes: ${qrCodes.length} stored — ${shown}. Create more with qrcode.create (targets: any site page, another module's landing such as bookings/menu/googlereviews/newsletter, a URL, tel, email, or WiFi). The QR Code module displays one chosen code on the site; codes also flow through the shared layer.`
@@ -279,13 +309,14 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
         const orderCount = mods.moduleItemCount(db, leadId, 'checkout');
         lines.push(
           `Checkout module: attached (${Number(coEmbed.published) ? 'published' : 'not published'}) — sells the shop's products and priced gallery photos in one cart; payments ${
-            configured ? `configured (${mode || 'unknown'} mode) via the business's shop Stripe` : 'NOT configured — the owner adds Stripe keys in Portal → Shop → Payments'
+            configured
+              ? `configured (${mode || 'unknown'} mode) via the business's shop Stripe`
+              : 'NOT configured — the owner adds Stripe keys in Portal → Shop → Payments'
           }; ${orderCount} order${orderCount === 1 ? '' : 's'} recorded.`
         );
       }
     } catch {
       /* checkout census is best-effort */
-
     }
     try {
       // Batch 131 — Comments: moderation queue + binding. Comments
@@ -328,7 +359,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
         let cols = '';
         try {
           const parsed = JSON.parse(dt.columns_json || '[]');
-          if (Array.isArray(parsed)) cols = parsed.map((col) => clip(col.label || col.key, 30)).filter(Boolean).join(', ');
+          if (Array.isArray(parsed))
+            cols = parsed
+              .map((col) => clip(col.label || col.key, 30))
+              .filter(Boolean)
+              .join(', ');
         } catch {
           cols = '';
         }
@@ -348,7 +383,9 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
       /* chart summary is best-effort */
     }
     const map = lines.join('\n');
-    return map.length > 7000 ? `${map.slice(0, 7000)}\n[site map truncated — full detail is available through the read tools]` : map;
+    return map.length > 7000
+      ? `${map.slice(0, 7000)}\n[site map truncated — full detail is available through the read tools]`
+      : map;
   };
 
   let attachmentRows = [];
@@ -389,9 +426,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
   // message text via withAtt() below. The owner's raw message is
   // untouched: transcripts, pending records and job instructions
   // keep carrying exactly what the owner wrote.
-  const turnRef = attachmentIds.length
-    ? `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    : null;
+  const turnRef = attachmentIds.length ? `turn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : null;
   let modelImages = [];
   let attachmentContext = '';
   if (attachmentRows.length) {
@@ -490,7 +525,9 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
   );
   if (cls && cls.error === 'muse_not_configured') {
     throw Object.assign(
-      new Error('AI site chat is not configured yet. Ask your BitPype admin to add an AI provider API key (Admin, API keys).'),
+      new Error(
+        'AI site chat is not configured yet. Ask your BitPype admin to add an AI provider API key (Admin, API keys).'
+      ),
       { code: 'AI_NOT_CONFIGURED' }
     );
   }
@@ -634,9 +671,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
       // also stored machine-readable in the job brief
       // (chat_origin.plans) so the delivery can be verified
       // against it (Batch 99 critic/reviewer gate).
-      ...(planText
-        ? [planText, '', "The owner's clarified request, in their words:"]
-        : []),
+      ...(planText ? [planText, '', "The owner's clarified request, in their words:"] : []),
       specText,
       attachmentIds.length
         ? `\nThe owner attached image(s) in the chat: attachment ids ${attachmentIds.join(', ')}. Fetch them before designing with the MCP tools site.chatAttachments / site.chatAttachment (leadId ${Number(leadId)}).`
@@ -673,7 +708,13 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
             `INSERT INTO design_jobs (type, title, instructions, lead_id, contact_email, status, brief, site_shape, built_by)
              VALUES ('improvement', ?, ?, ?, NULL, 'waiting_on_agent', ?, ?, NULL)`
           )
-          .run(`Improvement: ${(message || 'Site change').slice(0, 70)}`, instructions, Number(leadId), JSON.stringify(brief0), shape);
+          .run(
+            `Improvement: ${(message || 'Site change').slice(0, 70)}`,
+            instructions,
+            Number(leadId),
+            JSON.stringify(brief0),
+            shape
+          );
         jobId = Number(info.lastInsertRowid);
         designJobs.notifyAgentQueue(
           db,
@@ -714,8 +755,7 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
       // Batch 98: the plan(s) ride the brief machine-readably —
       // on a merge into an open job the earlier plans stay (the
       // delivery is verified against ALL of them, Batch 99).
-      const priorOrigin =
-        briefObj.chat_origin && typeof briefObj.chat_origin === 'object' ? briefObj.chat_origin : {};
+      const priorOrigin = briefObj.chat_origin && typeof briefObj.chat_origin === 'object' ? briefObj.chat_origin : {};
       const plans = Array.isArray(priorOrigin.plans) ? priorOrigin.plans.slice(0, 4) : [];
       if (plan) plans.push(plan);
       briefObj.chat_origin = {
@@ -794,14 +834,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
       clarifyAbout: baseRequest,
       clarifyKind: 'open',
       clarifySettled: settledNow,
-      clarifyPriorQa: keepPending
-        ? { questionsText: pending.questionsText || '', answers: priorAnswers }
-        : null,
+      clarifyPriorQa: keepPending ? { questionsText: pending.questionsText || '', answers: priorAnswers } : null,
       clarifyRound: roundNow,
     });
     if (loop && !loop.error) {
-      const answers =
-        intent === 'clarify_answer' && keepPending ? [...priorAnswers, message].slice(-20) : priorAnswers;
+      const answers = intent === 'clarify_answer' && keepPending ? [...priorAnswers, message].slice(-20) : priorAnswers;
       domain.withDb(workspaceId, (db) =>
         chatPending.savePending(db, {
           leadId,
@@ -834,7 +871,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
           'Clarifications from the owner:',
           ...answers.map((a) => `- ${a}`),
           ...(settledNow.length
-            ? ['', 'Settled decisions (binding — apply exactly, do not second-guess):', ...settledNow.map((s) => `- ${s}`)]
+            ? [
+                '',
+                'Settled decisions (binding — apply exactly, do not second-guess):',
+                ...settledNow.map((s) => `- ${s}`),
+              ]
             : []),
           '',
           'Implement this change now, following the clarifications. Fill any remaining gaps with the design defaults and state them in your summary.',
@@ -890,7 +931,9 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
 
   if (loop && loop.error === 'muse_not_configured') {
     throw Object.assign(
-      new Error('AI site chat is not configured yet. Ask your BitPype admin to add an AI provider API key (Admin, API keys).'),
+      new Error(
+        'AI site chat is not configured yet. Ask your BitPype admin to add an AI provider API key (Admin, API keys).'
+      ),
       { code: 'AI_NOT_CONFIGURED' }
     );
   }
@@ -994,7 +1037,11 @@ async function runSiteAgentChat(workspaceId, leadId, body = {}, opts = {}) {
         }
         report = runCriticNow();
       }
-      const reviewChecks = (report.checks || []).map((c) => ({ kind: c.kind, pass: !!c.pass, actual: String(c.actual || '') }));
+      const reviewChecks = (report.checks || []).map((c) => ({
+        kind: c.kind,
+        pass: !!c.pass,
+        actual: String(c.actual || ''),
+      }));
       if (report.verdict === 'pass') {
         turnReview = { verdict: 'pass', cycles, checks: reviewChecks };
         if (turnPlanId) {
@@ -1214,9 +1261,7 @@ function chatQueueStatuses(db, leadId) {
   const chatQueue = require('./siteChatQueue');
   try {
     const rows = db
-      .prepare(
-        "SELECT * FROM design_jobs WHERE lead_id = ? AND type = 'improvement' ORDER BY id DESC LIMIT 6"
-      )
+      .prepare("SELECT * FROM design_jobs WHERE lead_id = ? AND type = 'improvement' ORDER BY id DESC LIMIT 6")
       .all(Number(leadId));
     const out = [];
     for (const row of rows) {
@@ -1358,14 +1403,21 @@ async function resolveSiteChatLimit(workspaceId) {
 async function gateSiteChatRequest(workspaceId, leadId, opts = {}) {
   const portalTabs = require('./portalTabs');
   if (!portalTabs.isOwnerTier(opts.userType)) {
-    return { allowed: true, exempt: true, used: null, limit: null, planId: null, planName: null, timezone: null, day: null };
+    return {
+      allowed: true,
+      exempt: true,
+      used: null,
+      limit: null,
+      planId: null,
+      planName: null,
+      timezone: null,
+      day: null,
+    };
   }
   const domain = require('./domain');
   const chatUsage = require('./siteChatUsage');
   const { planId, planName, limit } = await resolveSiteChatLimit(workspaceId);
-  const decision = domain.withDb(workspaceId, (db) =>
-    chatUsage.checkAndRecord(db, { leadId, limit })
-  );
+  const decision = domain.withDb(workspaceId, (db) => chatUsage.checkAndRecord(db, { leadId, limit }));
   return { ...decision, planId, planName };
 }
 
@@ -1792,7 +1844,6 @@ function applyClientStructureReorder(workspaceId, leadId, body = {}) {
   };
 }
 
-
 /* ================================================================== */
 /* Batch 147 — native section (layout) editor.                         */
 /*                                                                     */
@@ -1834,7 +1885,9 @@ function layoutTokensInPages(pages) {
 function layoutModuleTypeForSection(section, embedsByToken) {
   if (!section || typeof section !== 'object') return '';
   const c = section.content && typeof section.content === 'object' ? section.content : {};
-  const declared = String(c.module_type || c.moduleType || '').trim().toLowerCase();
+  const declared = String(c.module_type || c.moduleType || '')
+    .trim()
+    .toLowerCase();
   if (section.type === 'site_module' && declared) return declared;
   if (declared && section.type === 'html') return declared;
   for (const token of layoutTokensInSection(section)) {
@@ -2066,10 +2119,9 @@ function applyClientLayoutSave(workspaceId, leadId, body = {}) {
     }
     const storedPage = site.pages[pageIndex];
     if (!storedPage || !Array.isArray(storedPage.sections)) {
-      throw Object.assign(
-        new Error('This page is freeform HTML — the layout editor applies to section-based pages.'),
-        { code: 'FREEFORM_PAGE' }
-      );
+      throw Object.assign(new Error('This page is freeform HTML — the layout editor applies to section-based pages.'), {
+        code: 'FREEFORM_PAGE',
+      });
     }
     const { embeds, byToken } = layoutEmbedsByToken(db, leadId);
     const ownTokens = new Set(byToken.keys());
@@ -2117,9 +2169,7 @@ function applyClientLayoutSave(workspaceId, leadId, body = {}) {
           code: 'INVALID_COLOR',
         });
       }
-      for (const [prop, value] of structure.parseStyleDecls(
-        typeof section.style === 'string' ? section.style : ''
-      )) {
+      for (const [prop, value] of structure.parseStyleDecls(typeof section.style === 'string' ? section.style : '')) {
         if (prop !== 'padding-top' && prop !== 'padding-bottom') continue;
         const m = /^(\d+(?:\.\d+)?)px$/.exec(value);
         if (m && Number(m[1]) < structure.layoutPaddingFloorPx()) {
@@ -2157,6 +2207,14 @@ function applyClientLayoutSave(workspaceId, leadId, body = {}) {
     const templateProblems = structure.validateSectionTemplates(sections);
     if (templateProblems.length) {
       throw Object.assign(new Error(templateProblems[0].message), { code: templateProblems[0].code });
+    }
+
+    // Batch 199: section scripts get the same re-check — an invalid
+    // script (caps, syntax, denylist, registry) is refused at save,
+    // naming the rule.
+    const scriptProblems = structure.validateSectionScripts(sections);
+    if (scriptProblems.length) {
+      throw Object.assign(new Error(scriptProblems[0].message), { code: scriptProblems[0].code });
     }
 
     const pages = JSON.parse(JSON.stringify(site.pages));
