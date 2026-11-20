@@ -32,6 +32,7 @@ const checks = [
   'batch198-contact-form-embed-templates-regressions',
   'batch199-section-scripts-regressions',
   'batch200-spacing-enforcement-regressions',
+  'batch201-importmap-audit-fixes-regressions',
   'google-reviews-regressions',
   'seo-foundations-regressions',
   'blog-static-regressions',

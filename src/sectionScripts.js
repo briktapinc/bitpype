@@ -518,7 +518,13 @@ function libHeadTags(libIds) {
   }
   const tags = [];
   if (Object.keys(importMap).length) {
-    tags.push(`<script type="importmap" data-bp-importmap="1">${JSON.stringify(importMap)}</script>`);
+    // Batch 201: the importmap JSON must carry the spec's top-level
+    // "imports" wrapper — {"imports": { "three": "…", … }}. Batch 199
+    // emitted the bare specifier map ({"three": "…"}), which is not a
+    // valid importmap: browsers reject it and every module script
+    // importing 'three' failed with "Failed to resolve module
+    // specifier" (proven in the Victoria redesign test, 2026-11-20).
+    tags.push(`<script type="importmap" data-bp-importmap="1">${JSON.stringify({ imports: importMap })}</script>`);
   }
   tags.push(...classic);
   return tags.join('\n');

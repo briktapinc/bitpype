@@ -1441,17 +1441,28 @@ async function assessExportedFilesInner(exported, opts = {}) {
   const filesFailed = [];
   const embeds = { mounts: 0, rendered: 0 };
   let audited = 0;
-  let page = null;
   // Batch 200: the settle wait below is what lets the audit measure
   // the page AFTER module embeds render (the pre-embed DOM hid
   // every embed overhang). Navigation stalls are handled by
   // discarding a wedged page once and aborting on a second stall —
   // see loadIntoAuditPage for why.
+  //
+  // Batch 201: FRESH PAGE PER FILE. Batch 200 loaded every file into
+  // ONE shared page via setContent swaps. The embed loaders
+  // (form-embed.js / module-embed.js) boot on DOMContentLoaded, and
+  // a content swap does not re-fire that lifecycle the way a real
+  // document load does — so every file after the first was audited
+  // with its embeds UNBOOTED: form mounts stayed empty placeholders
+  // (Victoria's contact.html drew 4 false template-hook violations
+  // for the form the embed would have built) and module content
+  // measured unstyled. A fresh page per file gives each file a real
+  // first load — DOMContentLoaded fires, embeds boot, the audit
+  // measures what a visitor gets. The wedged-page discipline is
+  // unchanged: `stallSeen` is audit-wide, one discard is tolerated,
+  // a second stall aborts with SPACING_AUDIT_ENV (fail closed).
   let embedsBlocked = false;
-  let pageRecreated = false;
-  try {
-    page = await browser.newPage();
-    await require('./browserGuard').guardBrowserPage(page);
+  let stallSeen = false;
+  {
     for (const rel of files) {
       let html;
       try {
@@ -1460,7 +1471,10 @@ async function assessExportedFilesInner(exported, opts = {}) {
         filesFailed.push({ file: rel, error: `unreadable: ${String((e && e.message) || e).slice(0, 120)}` });
         continue;
       }
+      let page = null;
       try {
+        page = await browser.newPage();
+        await require('./browserGuard').guardBrowserPage(page);
         // Batch 200: load the document ONCE per file and measure
         // every width by resizing the viewport. Reloading per width
         // tripled the audit's cost in slow-subresource environments
@@ -1478,9 +1492,9 @@ async function assessExportedFilesInner(exported, opts = {}) {
           height: widths[0] <= 700 ? 844 : 960,
           deviceScaleFactor: 1,
         };
-        const loadRes = await loadIntoAuditPage(browser, page, firstViewport, html, pageRecreated);
+        const loadRes = await loadIntoAuditPage(browser, page, firstViewport, html, stallSeen);
         page = loadRes.page;
-        pageRecreated = loadRes.recreated;
+        if (loadRes.recreated) stallSeen = true;
         if (MOUNT_MARKER_RE.test(html) && !embedsBlocked) {
           const settle = await waitForEmbedSettle(page, { capMs: 6000 });
           if (settle.loaderAbsent) embedsBlocked = true;
@@ -1517,6 +1531,15 @@ async function assessExportedFilesInner(exported, opts = {}) {
         if (e && e.code === 'SPACING_AUDIT_ENV') throw e;
         filesFailed.push({ file: rel, error: String((e && e.message) || e).slice(0, 160) });
         continue;
+      } finally {
+        if (page) {
+          try {
+            await page.close();
+          } catch {
+            /* a wedged page may refuse to close — the browser is
+               shared and deadline-guarded; abandonment is safe */
+          }
+        }
       }
       // Batch 199: the script pass — a fresh load with listeners,
       // only for files carrying script markers (spec §7.2).
@@ -1549,14 +1572,6 @@ async function assessExportedFilesInner(exported, opts = {}) {
         } finally {
           await ctx.close().catch(() => {});
         }
-      }
-    }
-  } finally {
-    if (page) {
-      try {
-        await page.close();
-      } catch {
-        /* */
       }
     }
   }
