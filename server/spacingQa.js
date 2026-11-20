@@ -1300,22 +1300,30 @@ async function assessSpacingInner(pages, theme, opts = {}) {
   const templateSpecs = require('../src/sectionTemplates').domHooksByType();
   const browser = await auditBrowser();
   const violations = [];
-  let page = null;
-  // Batch 200: navigation stalls are handled by discarding a
-  // wedged page once and aborting on a second stall (see
-  // loadIntoAuditPage); once one page proves the embed loader
+  // Batch 201: FRESH PAGE PER PAGE — the same realm-survival defect
+  // as the export audit (see assessExportedFilesInner): this pass
+  // loaded every page into ONE shared page via setContent swaps, so
+  // the embed loaders booted only on the first page and every later
+  // embed page audited unbooted (Victoria's QA drew the same 4 false
+  // contact template-hook violations here after the export audit
+  // had already been cleared by the fresh-page fix). Each page now
+  // gets its own browser page, closed in the per-page finally.
+  // Batch 200 discipline preserved: navigation stalls are handled
+  // by discarding a wedged page once and aborting on a second stall
+  // (see loadIntoAuditPage) — the one-discard allowance is carried
+  // audit-wide as stallSeen; once one page proves the embed loader
   // cannot boot in this environment, settle waits are skipped for
-  // the rest of the audit.
+  // the rest of the audit (embedsBlocked, also audit-wide).
   let embedsBlocked = false;
-  let pageRecreated = false;
-  try {
-    page = await browser.newPage();
+  let stallSeen = false;
+  for (const p of list) {
+    const html = renderPage(p, list, theme);
+    const slug = String((p && p.slug) || 'page');
+    let page = await browser.newPage();
     // Batch 145 (external review F11): the spacing browser shares
     // the setContent pattern — guard its subresource requests too.
     await require('./browserGuard').guardBrowserPage(page);
-    for (const p of list) {
-      const html = renderPage(p, list, theme);
-      const slug = String((p && p.slug) || 'page');
+    try {
       // Batch 200: load once per page, measure every width by
       // resizing (see assessExportedFilesInner for the rationale).
       // The emulation flags (isMobile/hasTouch) stay OFF at every
@@ -1330,9 +1338,9 @@ async function assessSpacingInner(pages, theme, opts = {}) {
         height: widths[0] <= 700 ? 844 : 960,
         deviceScaleFactor: 1,
       };
-      const loadRes = await loadIntoAuditPage(browser, page, firstViewport, html, pageRecreated);
+      const loadRes = await loadIntoAuditPage(browser, page, firstViewport, html, stallSeen);
       page = loadRes.page;
-      pageRecreated = loadRes.recreated;
+      if (loadRes.recreated) stallSeen = true;
       if (MOUNT_MARKER_RE.test(html) && !embedsBlocked) {
         const settle = await waitForEmbedSettle(page, { capMs: 6000 });
         if (settle.loaderAbsent) embedsBlocked = true;
@@ -1359,9 +1367,7 @@ async function assessSpacingInner(pages, theme, opts = {}) {
           }
         }
       }
-    }
-  } finally {
-    if (page) {
+    } finally {
       try {
         await page.close();
       } catch {

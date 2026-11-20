@@ -47,6 +47,17 @@
  *     file is recorded in filesFailed, never silently skipped.
  *     Skips without a browser (prints B201-BROWSER-PART: SKIPPED;
  *     prints B201-BROWSER-PART: RAN when it executes).
+ *   Part 4 — QA design-render audit (assessSpacing): the SAME
+ *     page-reuse defect lived in the QA pass — qaSite's spacing
+ *     check rendered every page into one shared page, so Victoria's
+ *     QA still drew the 4 false contact hooks after the export
+ *     audit was fixed (proven live by the first Batch 201 deploy's
+ *     PROOF201: export audit 0 violations, QA 26/27 with the same
+ *     false hooks). Same fix: a FRESH PAGE PER PAGE in
+ *     assessSpacingInner, stallSeen carried audit-wide. The fixture
+ *     mirrors Part 3 through renderPage with the embed page NOT
+ *     first. Skips without a browser (prints B201-QA-PART: SKIPPED;
+ *     prints B201-QA-PART: RAN when it executes).
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -113,6 +124,18 @@ function group(name, n) {
     assert.ok(sq.includes('waitForEmbedSettle'), 'the post-embed settle wait is intact');
     n++;
     assert.ok(sq.includes('filesFailed'), 'per-file failure accounting is intact');
+    n++;
+    // The QA design-render pass (assessSpacingInner) carries the
+    // same fresh-page fix — pin its segment specifically.
+    const qaSeg = sq.slice(
+      sq.indexOf('async function assessSpacingInner'),
+      sq.indexOf('async function assessExportedFiles')
+    );
+    assert.ok(qaSeg.includes('FRESH PAGE PER PAGE'), 'the QA audit documents the fresh-page rule');
+    n++;
+    assert.ok(qaSeg.includes('stallSeen'), 'the QA audit carries the wedged-page flag as stallSeen');
+    n++;
+    assert.ok(!qaSeg.includes('pageRecreated'), 'the QA audit no longer carries state on one shared page');
     n++;
     group('Part 1 — source pins', n);
   }
@@ -221,7 +244,7 @@ function group(name, n) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-b201-audit-'));
     const page = (inner) =>
       '<!DOCTYPE html><html><head><meta charset="utf-8"><title>t</title>' +
-      '<style>body{margin:0}section.band{padding-left:28px;padding-right:28px}</style></head><body>' +
+      '<style>body{margin:0}section.band{padding-left:28px;padding-right:28px}label{display:block;margin:0 0 8px}input,textarea,button{display:block}</style></head><body>' +
       inner +
       '</body></html>';
     // The fixture loader mirrors form-embed.js's boot contract
@@ -317,6 +340,79 @@ function group(name, n) {
       console.log(`  B201-BROWSER-PART: SKIPPED (${auditErr && (auditErr.code || auditErr.message)})`);
     }
     group('Part 3 — export audit boots embeds on every file', n);
+  }
+
+  /* ================================================================== */
+  /* Part 4 — QA audit (assessSpacing): embeds boot on non-first pages   */
+  /* ================================================================== */
+  {
+    let n = 0;
+    const page = (inner) =>
+      '<!DOCTYPE html><html><head><meta charset="utf-8"><title>t</title>' +
+      '<style>body{margin:0}section.band{padding-left:28px;padding-right:28px}label{display:block;margin:0 0 8px}input,textarea,button{display:block}</style></head><body>' +
+      inner +
+      '</body></html>';
+    // Same faithful loader as Part 3 (guard checked first, stamped
+    // at execution, boot on DOMContentLoaded).
+    const loader =
+      '<script>(function(){' +
+      'if(window.__fixtureForms&&window.__fixtureForms.__booted)return;' +
+      'function boot(){' +
+      'var m=document.querySelector("[data-bitpype-form-embed]");if(!m)return;' +
+      'm.innerHTML="<form method=\\"post\\" action=\\"#\\">" +' +
+      '"<label>Name <input type=\\"text\\" name=\\"name\\"></label>" +' +
+      '"<label>Email <input type=\\"email\\" name=\\"email\\"></label>" +' +
+      '"<label>Message <textarea name=\\"message\\"></textarea></label>" +' +
+      '"<button type=\\"submit\\">Send</button></form>";}' +
+      'window.__fixtureForms={__booted:true,boot:boot};' +
+      'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}' +
+      '})();</script>';
+    const htmlBySlug = {
+      index: page('<section class="band"><p style="margin:0">Clean home page.</p></section>' + loader),
+      contact: page(
+        '<section class="band" data-ws-section-type="contact_form" data-template="custom" id="contact">' +
+          '<h2 style="margin:0 0 12px">Contact us</h2>' +
+          '<div data-bitpype-form-embed="fixture-token"><p class="bp-mod-loading">Loading…</p></div>' +
+          '</section>' +
+          loader
+      ),
+      about: page('<section class="band"><p style="margin:0">Clean last page.</p></section>' + loader),
+    };
+    const qaPages = [{ slug: 'index' }, { slug: 'contact' }, { slug: 'about' }];
+    let qa = null;
+    let qaErr = null;
+    try {
+      qa = await spacingQa.assessSpacing(qaPages, THEME, {
+        renderPage: (p) => htmlBySlug[p.slug],
+        widths: [390],
+      });
+    } catch (e) {
+      qaErr = e;
+    }
+    if (qa) {
+      console.log('  B201-QA-PART: RAN');
+      const hooks = (qa.violations || []).filter((v) => v.kind === 'template-hook');
+      assert.equal(
+        hooks.length,
+        0,
+        `the QA pass draws no false template-hook violations from unbooted embeds (got ${JSON.stringify(hooks).slice(0, 300)})`
+      );
+      n++;
+      assert.ok(
+        !(qa.violations || []).some((v) => v.page === 'contact' && v.kind === 'template-hook'),
+        'the contact page (not first) draws no template-hook violations in the QA pass — its embed booted'
+      );
+      n++;
+      assert.equal(
+        qa.pass,
+        true,
+        `the QA pass is clean on the fixture (violations: ${JSON.stringify(qa.violations || []).slice(0, 300)})`
+      );
+      n++;
+    } else {
+      console.log(`  B201-QA-PART: SKIPPED (${qaErr && (qaErr.code || qaErr.message)})`);
+    }
+    group('Part 4 — QA audit boots embeds on every page', n);
   }
 
   console.log(`\nbatch201: all ${groups} groups passed`);
